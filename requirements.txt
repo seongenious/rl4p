@@ -1,0 +1,9 @@
+pygame
+tqdm
+pandas
+tensorboardX
+opencv-python
+matplotlib
+optax
+chex
+acme
