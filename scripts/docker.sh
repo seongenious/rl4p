@@ -3,7 +3,7 @@
 IMAGE_NAME="rl4p-env"
 CONTAINER_NAME="rl4p-container"
 WORKSPACE_DIR="/home/$USER"
-DEFAULT_PORT=9999
+DEFAULT_PORT=9000
 
 # Function to show help
 show_help() {

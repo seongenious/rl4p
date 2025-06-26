@@ -1,0 +1,23 @@
+vehicle_config:
+  max_speed: 15            # [km/h] 
+  max_accel: 1             # [m/s^2]
+  max_steering_angle: 40   # [deg]
+  max_lateral_accel: 1     # [m/s^2]
+  min_turning_radius: 6    # [m]
+  wheelbase: 2.5           # [m]
+
+env:
+  dt: 0.1                  # [s]
+  max_range: 30            # [m]
+
+reward:
+  path_resolution: 0.1     # [m]
+  heading_threshold: 1     # [deg]
+  goal_reach: 100
+  collision: -10000
+
+data_gen:
+  num_episodes: 5000
+  noise_std: 0.05
+  random_seed: 42
+  save_path: "./data/generated"
