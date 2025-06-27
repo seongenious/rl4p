@@ -48,7 +48,7 @@ def main():
     plt.legend()
     plt.xlabel("X [m]")
     plt.ylabel("Y [m]")
-    plt.savefig('./test.png')
+    plt.show()
 
 if __name__ == "__main__":
     main()

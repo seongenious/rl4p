@@ -12,6 +12,9 @@ import flax.linen as nn
 from flax.training import train_state, checkpoints
 from functools import partial
 
+from utils.io import load_transitions_into_buffer
+from utils.replay_buffer import ReplayBuffer
+
 
 class Actor(nn.Module):
     """Stochastic Gaussian policy network."""
@@ -44,26 +47,6 @@ class Critic(nn.Module):
         return jnp.squeeze(q, -1)
 
 
-def sample_transition_batch(batch_size: int, obs_dim: int, act_dim: int) -> Dict[str, jnp.ndarray]:
-    """Samples a batch of random transitions.
-
-    Args:
-        batch_size: Number of samples to generate.
-        obs_dim: Dimension of observation.
-        act_dim: Dimension of action.
-
-    Returns:
-        A dictionary of batched transitions.
-    """
-    return {
-        'obs': jnp.array(np.random.randn(batch_size, obs_dim), dtype=jnp.float32),
-        'act': jnp.array(np.random.randn(batch_size, act_dim), dtype=jnp.float32),
-        'next_obs': jnp.array(np.random.randn(batch_size, obs_dim), dtype=jnp.float32),
-        'reward': jnp.array(np.random.randn(batch_size), dtype=jnp.float32),
-        'done': jnp.array(np.random.randint(0, 2, size=(batch_size,)), dtype=jnp.float32)
-    }
-
-
 def save_checkpoint(step: int,
                     actor_state,
                     critic1_state,
@@ -83,7 +66,7 @@ def save_checkpoint(step: int,
             'alpha_opt_state': alpha_opt_state
         },
         step=step,
-        overwrite=True
+        overwrite=False
     )
 
 
@@ -222,7 +205,7 @@ def soft_update(target_params, source_params, tau: float) -> dict:
 
 def main():
     """Main training loop for SAC (simplified, critic only)."""
-    obs_dim = 4
+    obs_dim = 5
     act_dim = 2
     hidden_dims = [256, 256]
     batch_size = 256
@@ -287,9 +270,13 @@ def main():
     ckpt_dir = "./checkpoints"
     os.makedirs(ckpt_dir, exist_ok=True)
 
+    print("Load transitions into buffer")
+    replay_buffer = load_transitions_into_buffer(
+        folder_path='./data/', max_size=50000, obs_dim=obs_dim, act_dim=act_dim)
+
     for step in range(1, num_steps + 1):
-        # Sample data (replace with npz later)
-        batch = sample_transition_batch(batch_size, obs_dim, act_dim)
+        # Sample data
+        batch = replay_buffer.sample(batch_size=batch_size, rng=rng)
 
         # 1. compute target Q using target critic and actor
         alpha = jnp.exp(log_alpha)
@@ -301,15 +288,17 @@ def main():
             actor_apply_fn=actor_state.apply_fn,
             rng=rng,
             next_obs=batch['next_obs'],
-            reward=batch['reward'],
-            done=batch['done'],
+            reward=batch['rewards'],
+            done=batch['dones'],
             gamma=gamma,
             alpha=alpha
         )
         
         # 2. critic update
-        critic1_state, loss1 = update_critic(critic1_state, target_q, batch['obs'], batch['act'])
-        critic2_state, loss2 = update_critic(critic2_state, target_q, batch['obs'], batch['act'])
+        critic1_state, loss1 = update_critic(
+            critic1_state, target_q, batch['obs'], batch['actions'])
+        critic2_state, loss2 = update_critic(
+            critic2_state, target_q, batch['obs'], batch['actions'])
         
         # 3. actor update
         actor_state, actor_loss, log_prob = update_actor(

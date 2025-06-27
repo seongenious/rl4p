@@ -1,9 +1,11 @@
+import os
 import jax
 import jax.numpy as jnp
 import numpy as np
 from typing import List, Dict
 
 from envs.datatypes import State, Action, Transition
+from utils.replay_buffer import ReplayBuffer
 
 
 def save_transitions(transitions: List[Transition], path: str):
@@ -68,3 +70,29 @@ def load_transitions(path: str) -> Dict[str, jnp.ndarray]:
     """
     data = np.load(path)
     return {k: jnp.array(data[k]) for k in data}
+
+
+def load_transitions_into_buffer(
+        folder_path: str, max_size: int, obs_dim: int, act_dim: int) -> ReplayBuffer:
+    """Load all .npz transitions in a folder into a replay buffer.
+
+    Args:
+        folder_path: Path to the folder containing .npz transition files.
+        max_size: Maximum size of the replay buffer.
+        obs_dim: Observation dimension.
+        act_dim: Action dimension.
+
+    Returns:
+        ReplayBuffer object filled with loaded transitions.
+    """
+    buffer = ReplayBuffer(max_size=max_size, obs_dim=obs_dim, act_dim=act_dim)
+    files = sorted(f for f in os.listdir(folder_path) if f.endswith(".npz"))
+    print(f"Found {len(files)} transition files.")
+    
+    for f in files:
+        file_path = os.path.join(folder_path, f)
+        data = load_transitions(file_path)
+        buffer.add_batch(data)
+
+    print(f"Replay buffer populated with {buffer.size} transitions.")
+    return buffer
