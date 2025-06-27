@@ -29,16 +29,10 @@ RUN pip install --upgrade "jax[cuda11_pip]" \
 
 # Core packages
 RUN pip install --no-cache-dir \
-    dm-acme \
-    dm-env \
-    pygame \
-    matplotlib \
-    numpy \
-    pandas \
-    flax \
-    optax \
-    tqdm \
-    reeds-shepp
+    dm-acme dm-env pygame gym \
+    flax rlax torch tensorflow==2.11 \
+    "optax<0.1.7" \
+    matplotlib numpy pandas tqdm reeds-shepp 
 
 # Jupyter
 RUN pip install jupyterlab ipywidgets

@@ -12,8 +12,8 @@ class State:
 
 @chex.dataclass
 class Action:
-    delta: float      # [-1, 1] normalized
-    accel: float      # [-1, 1] normalized
+    delta: float  # [-1, 1] normalized
+    accel: float  # [-1, 1] normalized
 
 
 @chex.dataclass

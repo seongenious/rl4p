@@ -1,8 +1,9 @@
+import jax
 import jax.numpy as jnp
 import numpy as np
 from typing import List, Dict
 
-from envs.datatypes import Transition
+from envs.datatypes import State, Action, Transition
 
 
 def save_transitions(transitions: List[Transition], path: str):
@@ -19,17 +20,30 @@ def save_transitions(transitions: List[Transition], path: str):
     Args:
         transitions: List of Transition objects to save.
         path: Destination file path for saving the .npz archive.
-
-    Example:
-        save_transitions(transitions, "offline_data.npz")
     """
-    s = jnp.stack([jnp.array([t.obs.x, t.obs.y, t.obs.yaw, t.obs.v, t.obs.dir]) for t in transitions])
-    a = jnp.stack([jnp.array([t.action.delta, t.action.accel]) for t in transitions])
-    s_next = jnp.stack([jnp.array([t.next_obs.x, t.next_obs.y, t.next_obs.yaw, t.next_obs.v, t.next_obs.dir]) for t in transitions])
-    r = jnp.array([t.reward for t in transitions])
-    d = jnp.array([t.done for t in transitions])
+    # Convert list of transitions to Transition of batched arrays
+    stacked = Transition(
+        obs=jax.tree_util.tree_map(lambda *args: jnp.stack(args), *[t.obs for t in transitions]),
+        action=jax.tree_util.tree_map(lambda *args: jnp.stack(args), *[t.action for t in transitions]),
+        next_obs=jax.tree_util.tree_map(lambda *args: jnp.stack(args), *[t.next_obs for t in transitions]),
+        reward=jnp.stack([t.reward for t in transitions]),
+        done=jnp.stack([t.done for t in transitions]),
+    )
 
-    np.savez(path, obs=s, actions=a, next_obs=s_next, rewards=r, dones=d)
+    # Use vmap to vectorize conversion to arrays
+    def state_to_array(state: State):
+        return jnp.array([state.x, state.y, state.yaw, state.v, state.dir])
+
+    def action_to_array(action: Action):
+        return jnp.array([action.delta, action.accel])
+
+    obs = jax.vmap(state_to_array)(stacked.obs)
+    next_obs = jax.vmap(state_to_array)(stacked.next_obs)
+    actions = jax.vmap(action_to_array)(stacked.action)
+    rewards = stacked.reward
+    dones = stacked.done
+
+    np.savez(path, obs=obs, actions=actions, next_obs=next_obs, rewards=rewards, dones=dones)
 
 
 def load_transitions(path: str) -> Dict[str, jnp.ndarray]:

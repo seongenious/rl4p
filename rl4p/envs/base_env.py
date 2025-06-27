@@ -27,7 +27,8 @@ class BaseEnv(ABC):
         self.goal: State = None
         
         self.dt = config['env']['dt']
-        self.max_range = config['env']['max_range']
+        self.max_position = config['env']['max_initial_position']
+        self.max_heading = deg2rad(config['env']['max_initial_heading'])
         
         self.wheelbase = config['vehicle_config']['wheelbase']
         self.max_speed = kph2mps(config['vehicle_config']['max_speed'])
@@ -77,4 +78,5 @@ class BaseEnv(ABC):
             accel = jax.random.uniform(subkey2, (), minval=-1.0, maxval=1.0)
             action = Action(delta=delta, accel=accel)
             transitions.append(self.step(action))
+            self.reset()
         return transitions

@@ -39,31 +39,39 @@ def reward_fn(start: State, goal: State, config: dict) -> Tuple[float, bool, Lis
     path_resolution = config['reward']['path_resolution']
     goal_reward_val = config['reward']['goal_reach']
     collision_penalty_val = config['reward']['collision']
-    heading_threshold = deg2rad(config['reward']['heading_threshold'])
+    yaw_thres = deg2rad(config['reward']['heading_threshold'])
+    vel_thres = kph2mps(config['reward']['velocity_threshold'])
 
     # Initial and goal poses
     q0 = (start.x, start.y, start.yaw)
     q1 = (goal.x, goal.y, goal.yaw)
     
-    # Path reward (shorter path = higher reward)
+    # Get RS path
     radius = turning_radius_from_dynamics(start.v, a_lat_max, r_min)
-    path_reward = -rs.path_length(q0, q1, radius)
+    length = rs.path_length(q0, q1, radius)
+    points = rs.path_sample(q0, q1, radius, step_size=path_resolution)
+    
+    # Path reward (shorter path = higher reward)
+    path_reward = -length
 
+    # Sub goal is direction switching point
+    idx = find_direction_switch_idx(jnp.array(points))
+    sub_goal = points[idx]
+    
     # Goal reward
-    dx = start.x - goal.x
-    dy = start.y - goal.y
+    dx = start.x - sub_goal[0]
+    dy = start.y - sub_goal[1]
     distance = jnp.sqrt(dx**2 + dy**2)
-    heading_diff = jnp.abs(start.yaw - goal.yaw)
+    yaw_diff = jnp.abs(start.yaw - sub_goal[2])
 
     done = False
     goal_reward = 0.0
-    if distance < path_resolution and heading_diff < heading_threshold and start.v <= goal.v:
+    if distance < path_resolution and yaw_diff < yaw_thres and start.v <= vel_thres:
         goal_reward = goal_reward_val
         done = True
 
     # Collision penalty
     collision_penalty = 0.0
-    points = rs.path_sample(q0, q1, radius, step_size=path_resolution)
     for (x, y, yaw, s, kappa) in points:
         # TODO: Replace `False` with actual collision check
         if False:
@@ -87,3 +95,26 @@ def turning_radius_from_dynamics(v: float, a_lat_max: float = 4., r_min: float =
         Turning radius in m
     """
     return jnp.maximum(v**2 / a_lat_max, r_min)
+
+
+def find_direction_switch_idx(path: jnp.ndarray) -> int:
+    """
+    Estimate driving direction (+1: forward, -1: backward) at each point
+    based on heading and displacement vector.
+    
+    Args:
+        path: jnp.ndarray of (x, y, yaw, s, kappa).
+    
+    Returns:
+        direction switch index: int.
+    """
+    pos = path[:, :2]  # (x, y)
+    yaw = path[:, 2]   # yaw
+    delta = pos[1:] - pos[:-1]  # displacement vector
+    heading = jnp.stack([jnp.cos(yaw[:-1]), jnp.sin(yaw[:-1])], axis=-1)
+
+    dot = jnp.sum(delta * heading, axis=-1)
+    direction = jnp.sign(dot)  # shape: (N-1,), values: +1 or -1
+    change = jnp.where(direction[1:] != direction[:-1])[0]
+    
+    return int(change[0] - 1) if len(change) > 0 else -1

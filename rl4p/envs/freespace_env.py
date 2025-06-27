@@ -30,9 +30,9 @@ class FreespaceEnv(BaseEnv):
         """
         self.rng_key, *subkeys = jax.random.split(self.rng_key, 6)
 
-        x = jax.random.uniform(subkeys[0], (), minval=-self.max_range, maxval=self.max_range)
-        y = jax.random.uniform(subkeys[1], (), minval=-self.max_range, maxval=self.max_range)
-        yaw = jax.random.uniform(subkeys[2], (), minval=-jnp.pi, maxval=jnp.pi)
+        x = jax.random.uniform(subkeys[0], (), minval=-self.max_position, maxval=self.max_position)
+        y = jax.random.uniform(subkeys[1], (), minval=-self.max_position, maxval=self.max_position)
+        yaw = jax.random.uniform(subkeys[2], (), minval=-self.max_heading, maxval=self.max_heading)
         v = jax.random.uniform(subkeys[3], (), minval=-self.max_speed, maxval=self.max_speed)
         dir = jnp.where(v >= 0, 1, -1)
         
