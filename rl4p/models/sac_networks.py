@@ -1,7 +1,7 @@
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
-from typing import Sequence, Callable
+from typing import Sequence, Callable, Tuple
 
 
 class PolicyNetwork(nn.Module):
@@ -10,7 +10,7 @@ class PolicyNetwork(nn.Module):
     hidden_dims: Sequence[int] = (256, 256)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def __call__(self, x: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
         for dim in self.hidden_dims:
             x = nn.relu(nn.Dense(dim)(x))
         mean = nn.Dense(self.action_dim)(x)
