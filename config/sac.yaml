@@ -5,6 +5,9 @@ vehicle_config:
   max_lateral_accel: 1.0      # [m/s^2]
   min_turning_radius: 6.0     # [m]
   wheelbase: 2.5              # [m]
+  cg_to_front: 3.2            # [m]
+  cg_to_rear: 1.0             # [m]
+  width: 1.8                  # [m]
 
 env:
   dt: 0.25                    # [s]
