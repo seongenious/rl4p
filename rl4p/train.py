@@ -6,18 +6,27 @@ for testing purposes. The full BC-SAC pipeline will be implemented separately.
 
 import os
 import time
+import argparse
 
 import jax
 import jax.numpy as jnp
 import optax
 
-from utils.io import load_transitions_into_buffer
-from models.sac_networks import PolicyNetwork, QNetwork
-from models.sac_trainer import (
-    save_checkpoint, create_train_state, compute_target_q,
-    update_critic, update_actor, soft_update, update_alpha
+from envs.parking_env import ParkingEnv
+from models.networks import PolicyNetwork, QNetwork, sample_action
+from models.trainer import (
+    create_train_state, create_networks, initialize_train_states,
+    compute_target_q, update_critic, update_actor, update_alpha, soft_update
+)
+from utils.io import (
+    load_transitions_into_buffer, save_checkpoint, load_checkpoint
 )
 
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train SAC model.')
+    parser.add_argument('--output', type=str, default=None, help='Output directory name')
+    return parser.parse_args()
 
 def main():
     """Run main training loop for SAC (simplified, critic only).
@@ -25,18 +34,33 @@ def main():
     Note: This is a simplified SAC implementation for testing purposes.
     The full BC-SAC pipeline will be implemented separately.
     """
+    args = parse_args()
+    if args.output is None:
+      raise ValueError('Output directory is required.')
+
+    print(f'Training SAC model...')
+
+    # Get configuration in yaml
+    config = load_yaml_config('./config/sac.yaml')
+    
+    num_episodes = config['data_gen']['num_episodes']
+    render = config['train']['render']
+    ckpt_dir = config['train']['dir']
+    ckpt_dir = os.path.join(ckpt_dir, args.output)
+
+    # Setup environment 
+    env = ParkingEnv(config, render)
+    print('Environment setup complete.')
+
     # Network configuration
-    obs_dim = 5  # [x, y, yaw, v, dir] - simplified for testing
-    act_dim = 2  # [delta, accel]
-    hidden_dims = [256, 256]
-    batch_size = 256
-    learning_rate = 3e-4
-    num_steps = 1000
-    gamma = 0.99
-    tau = 0.005
+    batch_size = config['train']['batch_size']
+    learning_rate = config['train']['learning_rate']
+    num_steps = config['train']['num_steps']
+    gamma = config['train']['gamma']
+    tau = config['train']['tau']
 
     # Initialize random key
-    rng = jax.random.PRNGKey(0)
+    rng = jax.random.PRNGKey(42)
 
     # Initialize actor and critic networks using the shared network definitions
     actor = PolicyNetwork(action_dim=act_dim, hidden_dims=hidden_dims)

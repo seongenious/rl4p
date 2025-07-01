@@ -1,4 +1,5 @@
 import chex
+from typing import Dict, Any
 
 
 @chex.dataclass
@@ -18,8 +19,10 @@ class Action:
 
 @chex.dataclass
 class Transition:
-    obs: State
+    obs: Dict[str, Any]
     action: Action
-    next_obs: State
+    next_obs: Dict[str, Any]
     reward: float
     done: bool
+    truncated: bool
+    expert: Action

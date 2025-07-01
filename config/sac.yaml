@@ -1,28 +1,61 @@
 vehicle_config:
-  max_speed: 15.0             # [km/h] 
+  # Vehicle dynamics
+  max_speed: 10.0             # [km/h] 
   max_accel: 1.0              # [m/s^2]
   max_steering_angle: 40.0    # [deg]
   max_lateral_accel: 1.0      # [m/s^2]
-  min_turning_radius: 6.0     # [m]
-  wheelbase: 2.5              # [m]
-  cg_to_front: 3.2            # [m]
-  cg_to_rear: 1.0             # [m]
+  # Vehicle dimensions
+  wheelbase: 2.7              # [m]
+  front_overhang: 0.8         # [m]
+  rear_overhang: 1.0          # [m]
   width: 1.8                  # [m]
 
-env:
-  dt: 0.25                    # [s]
-  max_initial_position: 10.0  # [m]
-  max_initial_heading: 180.0  # [deg]
+rs_path:
+  resolution: 0.1             # [m] Reeds-Shepp path resolution
+  turning_radius: 6.0         # [m] Reeds-Shepp path turning radius
 
 reward:
-  path_resolution: 0.1        # [m]
+  path_length: -0.1           # [-] Path length penalty
+  success: 100.0              # [-] Goal reach bonus
+  truncated: -100.0           # [-] Collision or time limit penalty
+    
+observation:
+  # Occupancy grid
+  grid_size: 256              # [-]
+  grid_resolution: 0.2        # [m]
+
+env:
+  # Simulation environment
+  max_steps: 200              # [-]
+  dt: 0.1                     # [s]
+  # Random initial state
+  max_initial_position: 5.0   # [m]
+  max_initial_heading: 90.0   # [deg]
+  max_initial_velocity: 5.0   # [km/h]
+  # Terminal condition
+  distance_threshold: 0.5     # [m]
   heading_threshold: 1.0      # [deg]
   velocity_threshold: 0.5     # [km/h]
-  goal_reach: 100.0           # [-]
-  collision: -10000.0         # [-]
 
 data_gen:
-  num_samples: 2000
-  random_seed: 42
-  file_dir: "./data"
-  file_name: "range_10.0_180.0_2000"
+  num_episodes: 10
+  render: true
+  dir: "./data"
+
+train:
+  # Hyper parameters
+  num_steps: 1000
+  batch_size: 256
+  learning_rate: 3e-4
+  gamma: 0.99
+  tau: 0.005
+  # Training
+  total_steps: 100000
+  random_steps: 5000
+  update_after: 1000
+  update_every: 50
+  update_per_steps: 1
+  log_interval: 100
+  # Checkpoint
+  render: true
+  dir: "./checkpoints"
