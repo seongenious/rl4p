@@ -23,16 +23,16 @@ RUN pip install --upgrade pip setuptools wheel
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # 2. Install Required Packages
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-# Jax with CUDA
-RUN pip install --upgrade "jax[cuda11_pip]" \
+# JAX with CUDA - 호환성 있는 버전으로 고정
+RUN pip install "jax[cuda11_pip]==0.3.25" "jaxlib==0.3.25+cuda11.cudnn82" \
     -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
 # Core packages
 RUN pip install --no-cache-dir \
     dm-acme dm-env pygame gym opencv-python \
-    chex flax rlax torch tensorflow==2.11 \
-    "optax<0.1.7" tensorboardX \
-    matplotlib numpy pandas tqdm reeds-shepp 
+    "flax==0.4.2" "optax==0.1.5" "distrax==0.1.3" "chex==0.1.5" \
+    rlax torch tensorflow==2.11 \
+    tensorboardX matplotlib numpy pandas tqdm reeds-shepp 
 
 # Jupyter
 RUN pip install jupyterlab ipywidgets

@@ -11,6 +11,8 @@ import jax.numpy as jnp
 import optax
 import distrax
 from flax.training import train_state, checkpoints
+from flax.core.frozen_dict import unfreeze
+import jax.tree_util as tree
 
 from models.networks import PolicyNetwork, QNetwork, sample_action
 
@@ -36,18 +38,16 @@ def create_train_state(rng: jax.random.PRNGKey,
         apply_fn=model.apply, params=params, tx=tx
     )
 
-
 def create_networks() -> Tuple[PolicyNetwork, QNetwork]:
     """Create SAC networks with proper initialization.
             
     Returns:
-        Tuple of (policy_network, q_network).
+        Tuple of (policy_network, q_network, q_network).
     """
     policy_net = PolicyNetwork()
     q_net = QNetwork()
     
     return policy_net, q_net
-
 
 def initialize_train_states(
     rng: jax.random.PRNGKey,
@@ -82,7 +82,6 @@ def initialize_train_states(
     critic2_state = create_train_state(rng3, q_net, (dummy_obs, dummy_action), learning_rate)
     
     return actor_state, critic1_state, critic2_state 
-
 
 def compute_target_q(
     actor_params: Dict[str, Any],
@@ -135,30 +134,7 @@ def compute_target_q(
 
     return target_q, rng
 
-
-def critic_loss_fn(critic_apply: Any, 
-                   critic_params: Dict[str, Any], 
-                   obs: Dict[str, jnp.ndarray], 
-                   act: jnp.ndarray, 
-                   target_q: jnp.ndarray) -> Tuple[jnp.ndarray, Dict[str, Any]]:
-    """Compute the critic loss.
-
-    Args:
-        critic_apply: Critic apply function.
-        critic_params: Parameters of critic.
-        obs: Batch of observations dictionary.
-        act: Batch of actions, shape: (batch_size, act_dim).
-        target_q: Target Q-values, shape: (batch_size,).
-
-    Returns:
-        Scalar critic loss and auxiliary data.
-    """
-    q = critic_apply(critic_params, obs, act)
-    loss = jnp.mean((q - target_q) ** 2)
-    return loss, {'q': q}
-
-
-@jax.jit
+# @jax.jit
 def update_critic(critic_state: train_state.TrainState,
                   target_q: jnp.ndarray,
                   obs: Dict[str, jnp.ndarray],
@@ -184,10 +160,10 @@ def update_critic(critic_state: train_state.TrainState,
     new_critic_state = critic_state.apply_gradients(grads=grads)
     return new_critic_state, loss
 
-
-@jax.jit
+# @jax.jit
 def update_actor(actor_state: train_state.TrainState,
                  critic_params: Dict[str, Any],
+                 critic_apply_fn: Any,
                  rng: jax.random.PRNGKey,
                  obs: Dict[str, jnp.ndarray],
                  alpha: float) -> Tuple[train_state.TrainState, jnp.ndarray, jnp.ndarray]:
@@ -196,6 +172,7 @@ def update_actor(actor_state: train_state.TrainState,
     Args:
         actor_state: Current TrainState for actor.
         critic_params: Critic network parameters.
+        critic_apply_fn: Critic apply function.
         rng: JAX random key.
         obs: Observations dictionary.
         alpha: Entropy coefficient.
@@ -203,7 +180,7 @@ def update_actor(actor_state: train_state.TrainState,
     Returns:
         Tuple of (updated actor state, scalar loss, log_prob of actions).
     """
-    def actor_loss_fn(params, rng):
+    def loss_fn(params, rng):
         mu, log_std = actor_state.apply_fn(params, obs)
         key, subkey = jax.random.split(rng)
         std = jnp.exp(log_std)
@@ -212,38 +189,15 @@ def update_actor(actor_state: train_state.TrainState,
         log_prob = normal.log_prob(action).sum(axis=-1)
         tanh_action = jnp.tanh(action)
 
-        q = QNetwork().apply(critic_params, obs, tanh_action)
+        q = critic_apply_fn(critic_params, obs, tanh_action)
         loss = (alpha * log_prob - q).mean()
         return loss, log_prob
 
-    (loss, log_prob), grads = jax.value_and_grad(
-        actor_loss_fn, has_aux=True
-    )(actor_state.params, rng)
+    (loss, log_prob), grads = jax.value_and_grad(loss_fn, has_aux=True)(actor_state.params, rng)
     actor_state = actor_state.apply_gradients(grads=grads)
     return actor_state, loss, log_prob
 
-
-@jax.jit
-def soft_update(target_params: Dict[str, Any], 
-                source_params: Dict[str, Any], 
-                tau: float) -> Dict[str, Any]:
-    """Perform Polyak averaging (soft update) of target parameters.
-    
-    Args:
-        target_params: Target network parameters.
-        source_params: Source network parameters.
-        tau: Soft update coefficient.
-        
-    Returns:
-        Updated target parameters.
-    """
-    return jax.tree_util.tree_map(
-        lambda tp, sp: (1 - tau) * tp + tau * sp, 
-        target_params, source_params
-    )
-
-
-@jax.jit
+# @jax.jit
 def update_alpha(log_alpha: jnp.ndarray,
                 alpha_opt_state: optax.OptState,
                 log_prob: jnp.ndarray,
@@ -261,12 +215,31 @@ def update_alpha(log_alpha: jnp.ndarray,
     Returns:
         Tuple of updated log_alpha, opt_state, and alpha_loss.
     """
-    def alpha_loss_fn(log_alpha):
+    def loss_fn(log_alpha):
         alpha = jnp.exp(log_alpha)
         loss = -jnp.mean(alpha * (log_prob + target_entropy))
         return loss
 
-    loss, grads = jax.value_and_grad(alpha_loss_fn)(log_alpha)
+    loss, grads = jax.value_and_grad(loss_fn)(log_alpha)
     updates, alpha_opt_state = alpha_optimizer.update(grads, alpha_opt_state)
     log_alpha = optax.apply_updates(log_alpha, updates)
     return log_alpha, alpha_opt_state, loss
+
+# @jax.jit
+def soft_update(target_params: Dict[str, Any], 
+                source_params: Dict[str, Any], 
+                tau: float) -> Dict[str, Any]:
+    """Perform Polyak averaging (soft update) of target parameters.
+    
+    Args:
+        target_params: Target network parameters.
+        source_params: Source network parameters.
+        tau: Soft update coefficient.
+        
+    Returns:
+        Updated target parameters.
+    """
+    return jax.tree_util.tree_map(
+        lambda tp, sp: (1 - tau) * tp + tau * sp, 
+        target_params, source_params
+    )

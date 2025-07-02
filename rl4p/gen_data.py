@@ -3,8 +3,10 @@ import argparse
 from tqdm import tqdm
 
 from envs.parking_env import ParkingEnv
-from utils.config import load_yaml_config
-from utils.io import create_transition_dict, save_transitions_dict, batch_transitions_dict
+from utils.io import (
+  load_yaml_config, create_transition_dict, 
+  save_transitions_dict, batch_transitions_dict
+)
 
 
 def parse_args():
@@ -18,7 +20,7 @@ def main() -> None:
     """Main function for data generation."""
     args = parse_args()
     if args.output is None:
-      raise ValueError('File name is required.')
+      raise ValueError('Output is required.')
 
     print(f'Generating data... Output file: {args.output}.npz')
 
@@ -26,12 +28,11 @@ def main() -> None:
     config = load_yaml_config('./config/sac.yaml')
     
     num_episodes = config['data_gen']['num_episodes']
-    render = config['data_gen']['render']
     file_dir = config['data_gen']['dir']
     file_path = os.path.join(file_dir, args.output + '.npz')
 
     # Setup environment 
-    env = ParkingEnv(config, render)
+    env = ParkingEnv(config, config['data_gen']['render'])
     print('Environment setup complete.')
         
     # Run episodes

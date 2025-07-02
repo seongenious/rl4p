@@ -9,7 +9,7 @@ class MLP(nn.Module):
     hidden_dims: Sequence[int] = (256, 256)
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:        
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
             x = nn.relu(x)
@@ -23,10 +23,11 @@ class CNN(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        # x shape: (batch_size, 256, 256, 1)
-        # Add channel dimension if not present
+        # x shape: (batch_size, 256, 256)
+        if x.ndim == 2:
+            x = x[None, ...]  # (1, 256, 256)
         if x.ndim == 3:
-            x = x[..., None]
+            x = x[..., None]  # (batch, 256, 256, 1)
         
         # Convolutional layers
         for dim in self.hidden_dims:
@@ -53,15 +54,19 @@ class ObservationEncoder(nn.Module):
     def __call__(self, obs: Dict[str, jnp.ndarray]) -> jnp.ndarray:
         # Process vehicle state
         vehicle_state = obs['vehicle_state']  # (batch_size, 5)
-        vehicle_features = MLP(self.vehicle_hidden_dims)(vehicle_state)
+        if vehicle_state.ndim == 1:
+            vehicle_state = vehicle_state[None, ...]  # (1, 5)
+        vehicle_features = MLP(self.vehicle_hidden_dims)(vehicle_state)  # (batch_size, 256)
         
         # Process occupancy grid
         occupancy_grid = obs['occupancy_grid']  # (batch_size, 256, 256)
-        grid_features = CNN(self.grid_hidden_dims, self.grid_output_dim)(occupancy_grid, training=training)
+        if occupancy_grid.ndim == 2:
+            occupancy_grid = occupancy_grid[None, ...]  # (1, 256, 256)
+        grid_features = CNN(self.grid_hidden_dims, self.grid_output_dim)(occupancy_grid)  # (batch_size, 256)
         
         # Combine features
         combined = jnp.concatenate([vehicle_features, grid_features], axis=-1)
-        encoded = MLP(self.combined_hidden_dims)(combined)
+        encoded = MLP(self.combined_hidden_dims)(combined)  # (batch_size, 256)
         
         return encoded
 
@@ -77,7 +82,7 @@ class PolicyNetwork(nn.Module):
         x = ObservationEncoder()(obs)
         
         # Policy head
-        for dim in self.policy_hidden_dims:
+        for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
             x = nn.relu(x)
         
@@ -101,7 +106,7 @@ class QNetwork(nn.Module):
         x = jnp.concatenate([x, action], axis=-1)
         
         # Q-function head
-        for dim in self.q_hidden_dims:
+        for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
             x = nn.relu(x)
         

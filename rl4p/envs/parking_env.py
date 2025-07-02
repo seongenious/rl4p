@@ -66,8 +66,8 @@ class ParkingEnv(gym.Env):
         # Observation space: {vehicle state (5) + occupancy grid (256*256)}
         self.observation_space = gym.spaces.Dict({
           'vehicle_state': gym.spaces.Box(
-            low=np.array([-np.inf, -np.inf, -np.pi, 0., -1]),
-            high=np.array([np.inf, np.inf, np.pi, np.inf, 1]),
+            low=np.array([-np.inf, -np.inf, -np.pi, 0., -1.]),
+            high=np.array([np.inf, np.inf, np.pi, np.inf, 1.]),
             dtype=np.float32
           ),
           'occupancy_grid': gym.spaces.Box(
@@ -77,7 +77,7 @@ class ParkingEnv(gym.Env):
         
         # Environment state
         self.state: Optional[State] = None
-        self.goal = State(x=0., y=0., yaw=0., v=0., dir=1)
+        self.goal = State(x=0., y=0., yaw=0., v=0., dir=1.)
         self.occupancy_grid: Optional[np.ndarray] = None
         self.step_count: int = 0
         

@@ -86,3 +86,5 @@ python rl4p/visualize.py --ckpt_dir ./checkpoints --config ./config/sac.yaml
 
 - Building SAC-only training and validation pipeline for BC-SAC
 - Organizing test code and modularization in progress
+
+tensorboard --logdir=runs
