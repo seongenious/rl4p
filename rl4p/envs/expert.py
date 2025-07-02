@@ -1,7 +1,6 @@
 from typing import Dict, Tuple, List
 
 import jax.numpy as jnp
-import numpy as np
 import reeds_shepp as rs
 
 from envs.datatypes import State
@@ -16,6 +15,23 @@ class Expert:
         self.max_steering_angle = config['vehicle_config']['max_steering_angle']
         self.max_accel = config['vehicle_config']['max_accel']
 
+    def get_path_length(self, start: State, goal: State) -> float:
+        """Get Reeds-Shepp path length.
+        
+        Args:
+            start: Start state. (x, y, yaw)
+            goal: Goal state. (x, y, yaw)
+        
+        Returns:
+            Path length.
+        """
+        radius = self.turning_radius_from_dynamics(start.v)
+        q0 = (start.x, start.y, start.yaw)
+        q1 = (goal.x, goal.y, goal.yaw)
+        path_length = rs.path_length(q0, q1, radius)
+        
+        return path_length
+    
     def get_rs_path(self, start: State, goal: State) -> List[State]:
         """Get Reeds-Shepp path.
         

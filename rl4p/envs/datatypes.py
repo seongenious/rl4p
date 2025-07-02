@@ -1,6 +1,7 @@
 import chex
 from typing import Dict, Any
 
+import jax.numpy as jnp
 
 @chex.dataclass
 class State:
@@ -26,3 +27,9 @@ class Transition:
     done: bool
     truncated: bool
     expert: Action
+
+
+@chex.dataclass
+class Observation:
+    vehicle_state: jnp.ndarray    # shape = (batch, 5)
+    occupancy_grid: jnp.ndarray   # shape = (batch, 256, 256)

@@ -1,8 +1,9 @@
-# Base image: NVIDIA CUDA 11.8 + cuDNN 8 + Ubuntu 20.04
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu20.04
+# Base image: NVIDIA CUDA 12.2 + cuDNN 8.9 + Ubuntu 22.04
+FROM nvidia/cuda:12.6.2-cudnn-devel-ubuntu20.04
 
 # Set non-interactive mode
 ENV DEBIAN_FRONTEND=noninteractive
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|http://mirror.kakao.com/ubuntu/|g' /etc/apt/sources.list
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # 1. Install System Packages
@@ -12,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential wget curl git unzip vim tmux nano ffmpeg \
     libgl1-mesa-glx libglib2.0-0 x11-apps libboost-all-dev \
     libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+    tensorrt libnvinfer-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set Python aliases
@@ -24,15 +26,14 @@ RUN pip install --upgrade pip setuptools wheel
 # 2. Install Required Packages
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # JAX with CUDA - 호환성 있는 버전으로 고정
-RUN pip install "jax[cuda11_pip]==0.3.25" "jaxlib==0.3.25+cuda11.cudnn82" \
-    -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+RUN pip install --upgrade "jax[cuda12]" 
+# -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
 # Core packages
 RUN pip install --no-cache-dir \
     dm-acme dm-env pygame gym opencv-python \
-    "flax==0.4.2" "optax==0.1.5" "distrax==0.1.3" "chex==0.1.5" \
-    rlax torch tensorflow==2.11 \
-    tensorboardX matplotlib numpy pandas tqdm reeds-shepp 
+    flax optax==0.1.7 distrax chex rlax torch tensorflow \
+    tensorboard matplotlib numpy pandas tqdm reeds-shepp 
 
 # Jupyter
 RUN pip install jupyterlab ipywidgets

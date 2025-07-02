@@ -1,46 +1,41 @@
 vehicle_config:
   # Vehicle dynamics
-  max_speed: 10.0             # [km/h] 
-  max_accel: 1.0              # [m/s^2]
-  max_steering_angle: 40.0    # [deg]
-  max_lateral_accel: 1.0      # [m/s^2]
+  max_speed: 10.0 # [km/h]
+  max_accel: 1.0 # [m/s^2]
+  max_steering_angle: 40.0 # [deg]
+  max_lateral_accel: 1.0 # [m/s^2]
   # Vehicle dimensions
-  wheelbase: 2.7              # [m]
-  front_overhang: 0.8         # [m]
-  rear_overhang: 1.0          # [m]
-  width: 1.8                  # [m]
+  wheelbase: 2.7 # [m]
+  front_overhang: 0.8 # [m]
+  rear_overhang: 1.0 # [m]
+  width: 1.8 # [m]
 
 rs_path:
-  resolution: 0.1             # [m] Reeds-Shepp path resolution
-  turning_radius: 6.0         # [m] Reeds-Shepp path turning radius
+  resolution: 0.1 # [m] Reeds-Shepp path resolution
+  turning_radius: 6.0 # [m] Reeds-Shepp path turning radius
 
 reward:
-  path_length: -0.1           # [-] Path length penalty
-  success: 100.0              # [-] Goal reach bonus
-  truncated: -100.0           # [-] Collision or time limit penalty
-    
+  path_length: -0.1 # [-] Path length penalty
+  success: 100.0 # [-] Goal reach bonus
+  truncated: -100.0 # [-] Collision or time limit penalty
+
 observation:
   # Occupancy grid
-  grid_size: 256              # [-]
-  grid_resolution: 0.2        # [m]
+  grid_size: 256 # [-]
+  grid_resolution: 0.2 # [m]
 
 env:
   # Simulation environment
-  max_steps: 200              # [-]
-  dt: 0.1                     # [s]
+  max_steps: 200 # [-]
+  dt: 0.1 # [s]
   # Random initial state
-  max_initial_position: 5.0   # [m]
-  max_initial_heading: 90.0   # [deg]
-  max_initial_velocity: 5.0   # [km/h]
+  max_initial_position: 5.0 # [m]
+  max_initial_heading: 90.0 # [deg]
+  max_initial_velocity: 5.0 # [km/h]
   # Terminal condition
-  distance_threshold: 0.5     # [m]
-  heading_threshold: 1.0      # [deg]
-  velocity_threshold: 0.5     # [km/h]
-
-data_gen:
-  num_episodes: 10
-  render: true
-  dir: "./data"
+  distance_threshold: 0.5 # [m]
+  heading_threshold: 1.0 # [deg]
+  velocity_threshold: 0.5 # [km/h]
 
 train:
   # Hyper parameters
@@ -49,13 +44,13 @@ train:
   gamma: 0.99
   tau: 0.005
   # Training
-  num_episodes: 10
-  buffer_size: 10000
-  random_steps: 3
-  update_after: 1
-  update_every: 1
+  num_episodes: 10000
+  buffer_size: 1000
+  random_steps: 1000
+  update_after: 500
+  update_every: 10
   updates_per_step: 30
-  log_interval: 1
+  log_interval: 10
   # Checkpoint
   render: true
   dir: "./checkpoints"

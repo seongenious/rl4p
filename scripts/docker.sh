@@ -28,6 +28,8 @@ start_container() {
         --gpus all \
         -e DISPLAY=$DISPLAY \
         -v /tmp/.X11-unix:/tmp/.X11-unix \
+        -v /etc/passwd:/etc/passwd:ro \
+        -v /etc/group:/etc/group:ro \
         -v $WORKSPACE_DIR:/mnt \
         -p $DEFAULT_PORT:$DEFAULT_PORT \
         --name $CONTAINER_NAME \

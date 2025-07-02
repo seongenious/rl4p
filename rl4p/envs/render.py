@@ -328,7 +328,7 @@ class ParkingRenderer:
         self.trajectory = []
     
     def render(self, state: State, step_count: int, reward: float, 
-               done: bool, truncated: bool, expert: List[State]):
+               done: bool, truncated: bool, rs_path: List[State]):
         """Render the current state.
         
         Args:
@@ -337,7 +337,7 @@ class ParkingRenderer:
             reward: Current reward.
             done: Whether episode is done.
             truncated: Whether episode was truncated.
-            expert: Expert trajectory.
+            rs_path: Reeds-Shepp path.
         """
         # Clear screen
         self.screen.fill(self.config.DARK_BG)
@@ -355,7 +355,7 @@ class ParkingRenderer:
         self.draw_vehicle(state)
         
         # Draw info panel
-        self.draw_info(state, step_count, reward, done, truncated, expert)
+        self.draw_info(state, step_count, reward, done, truncated, rs_path)
         
         # Update display
         pygame.display.flip()

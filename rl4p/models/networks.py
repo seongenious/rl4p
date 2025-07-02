@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 from typing import Sequence, Callable, Tuple, Optional, Dict, Any, List
 
+from envs.datatypes import Observation
 
 class MLP(nn.Module):
     """Multi-layer perceptron."""
@@ -51,15 +52,15 @@ class ObservationEncoder(nn.Module):
     combined_hidden_dims: Sequence[int] = (256, 256)
 
     @nn.compact
-    def __call__(self, obs: Dict[str, jnp.ndarray]) -> jnp.ndarray:
+    def __call__(self, obs: Observation) -> jnp.ndarray:
         # Process vehicle state
-        vehicle_state = obs['vehicle_state']  # (batch_size, 5)
+        vehicle_state = obs.vehicle_state  # (batch_size, 5)
         if vehicle_state.ndim == 1:
             vehicle_state = vehicle_state[None, ...]  # (1, 5)
         vehicle_features = MLP(self.vehicle_hidden_dims)(vehicle_state)  # (batch_size, 256)
         
         # Process occupancy grid
-        occupancy_grid = obs['occupancy_grid']  # (batch_size, 256, 256)
+        occupancy_grid = obs.occupancy_grid  # (batch_size, 256, 256)
         if occupancy_grid.ndim == 2:
             occupancy_grid = occupancy_grid[None, ...]  # (1, 256, 256)
         grid_features = CNN(self.grid_hidden_dims, self.grid_output_dim)(occupancy_grid)  # (batch_size, 256)
@@ -77,7 +78,7 @@ class PolicyNetwork(nn.Module):
     hidden_dims: Sequence[int] = (256, 256)
 
     @nn.compact
-    def __call__(self, obs: Dict[str, jnp.ndarray]) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    def __call__(self, obs: Observation) -> Tuple[jnp.ndarray, jnp.ndarray]:
         # Encode observation
         x = ObservationEncoder()(obs)
         
@@ -98,7 +99,7 @@ class QNetwork(nn.Module):
     hidden_dims: Sequence[int] = (256, 256)
 
     @nn.compact
-    def __call__(self, obs: Dict[str, jnp.ndarray], action: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, obs: Observation, action: jnp.ndarray) -> jnp.ndarray:
         # Encode observation
         x = ObservationEncoder()(obs)
         
@@ -115,7 +116,7 @@ class QNetwork(nn.Module):
 
 def sample_action(actor: PolicyNetwork, 
                   params: Dict, 
-                  observation: Dict[str, jnp.ndarray],
+                  obs: Observation,
                   rng: Optional[jax.random.PRNGKey] = None) -> jnp.ndarray:
     """Perform policy inference to get actions. Dependent on whether rng is provided, 
     the action is deterministic or stochastic.
@@ -123,13 +124,13 @@ def sample_action(actor: PolicyNetwork,
     Args:
         actor: Actor network definition.
         params: Actor network parameters.
-        observation: Observation dictionary with keys 'vehicle_state' and 'occupancy_grid'.
+        obs: Observation.
         rng: Random number generator key.
 
     Returns:
         Actions, shape: (batch_size, action_dim).
     """
-    mu, log_std = actor.apply(params, observation)
+    mu, log_std = actor.apply(params, obs)
     
     if rng is None:
         # Deterministic action

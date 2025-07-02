@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from tqdm import tqdm
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 
 from envs.parking_env import ParkingEnv
 from models.networks import PolicyNetwork, QNetwork, sample_action
@@ -65,7 +65,7 @@ def main():
     # Logger configurations
     log_interval = config['train']['log_interval']
     log_dir = os.path.join("./runs", datetime.now().strftime("%Y%m%d-%H%M%S"))
-    logger = SummaryWriter(log_dir)
+    # logger = SummaryWriter(log_dir)
     
     # Other configurations
     ckpt_dir = config['train']['dir']
@@ -199,11 +199,11 @@ def main():
 
         # Log and save checkpoint
         if step >= update_after and step % log_interval == 0:
-            logger.add_scalar('actor_loss', actor_loss, step)
-            logger.add_scalar('critic/loss1', critic1_loss, step)
-            logger.add_scalar('critic/loss2', critic2_loss, step)
-            logger.add_scalar('alpha_loss', alpha_loss, step)
-            logger.add_scalar('reward', episode_reward, step)
+            # logger.add_scalar('actor_loss', actor_loss, step)
+            # logger.add_scalar('critic/loss1', critic1_loss, step)
+            # logger.add_scalar('critic/loss2', critic2_loss, step)
+            # logger.add_scalar('alpha_loss', alpha_loss, step)
+            # logger.add_scalar('reward', episode_reward, step)
             
             save_checkpoint(
                 step=step, 

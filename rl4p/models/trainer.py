@@ -15,7 +15,7 @@ from flax.core.frozen_dict import unfreeze
 import jax.tree_util as tree
 
 from models.networks import PolicyNetwork, QNetwork, sample_action
-
+from envs.datatypes import Observation
 
 def create_train_state(rng: jax.random.PRNGKey,
                        model: Any,
@@ -83,6 +83,7 @@ def initialize_train_states(
     
     return actor_state, critic1_state, critic2_state 
 
+@jax.jit
 def compute_target_q(
     actor_params: Dict[str, Any],
     target_critic1_params: Dict[str, Any],
@@ -90,7 +91,7 @@ def compute_target_q(
     critic_apply_fn: Any,
     actor_apply_fn: Any,
     rng: jax.random.PRNGKey,
-    next_obs: Dict[str, jnp.ndarray],
+    next_obs: Observation,
     reward: jnp.ndarray,
     done: jnp.ndarray,
     gamma: float,
@@ -134,17 +135,17 @@ def compute_target_q(
 
     return target_q, rng
 
-# @jax.jit
+@jax.jit  
 def update_critic(critic_state: train_state.TrainState,
                   target_q: jnp.ndarray,
-                  obs: Dict[str, jnp.ndarray],
+                  obs: Observation,
                   act: jnp.ndarray) -> Tuple[train_state.TrainState, jnp.ndarray]:
     """Perform a critic update step.
 
     Args:
         critic_state: Current TrainState for critic.
         target_q: Target Q-values, shape: (batch_size,).
-        obs: Observations dictionary.
+        obs: Observations.
         act: Actions, shape: (batch_size, act_dim).
 
     Returns:
@@ -160,12 +161,12 @@ def update_critic(critic_state: train_state.TrainState,
     new_critic_state = critic_state.apply_gradients(grads=grads)
     return new_critic_state, loss
 
-# @jax.jit
+@jax.jit
 def update_actor(actor_state: train_state.TrainState,
                  critic_params: Dict[str, Any],
                  critic_apply_fn: Any,
                  rng: jax.random.PRNGKey,
-                 obs: Dict[str, jnp.ndarray],
+                 obs: Observation,
                  alpha: float) -> Tuple[train_state.TrainState, jnp.ndarray, jnp.ndarray]:
     """Perform actor update step using reparameterization trick.
 
@@ -174,7 +175,7 @@ def update_actor(actor_state: train_state.TrainState,
         critic_params: Critic network parameters.
         critic_apply_fn: Critic apply function.
         rng: JAX random key.
-        obs: Observations dictionary.
+        obs: Observations.
         alpha: Entropy coefficient.
 
     Returns:
@@ -197,12 +198,14 @@ def update_actor(actor_state: train_state.TrainState,
     actor_state = actor_state.apply_gradients(grads=grads)
     return actor_state, loss, log_prob
 
-# @jax.jit
-def update_alpha(log_alpha: jnp.ndarray,
-                alpha_opt_state: optax.OptState,
-                log_prob: jnp.ndarray,
-                target_entropy: float,
-                alpha_optimizer: optax.GradientTransformation) -> Tuple[jnp.ndarray, optax.OptState, jnp.ndarray]:
+@jax.jit
+def update_alpha(
+    log_alpha: jnp.ndarray,
+    alpha_opt_state: optax.OptState,
+    log_prob: jnp.ndarray,
+    target_entropy: float,
+    alpha_optimizer: optax.GradientTransformation
+) -> Tuple[jnp.ndarray, optax.OptState, jnp.ndarray]:
     """Perform update for entropy coefficient α.
 
     Args:
@@ -225,7 +228,7 @@ def update_alpha(log_alpha: jnp.ndarray,
     log_alpha = optax.apply_updates(log_alpha, updates)
     return log_alpha, alpha_opt_state, loss
 
-# @jax.jit
+@jax.jit
 def soft_update(target_params: Dict[str, Any], 
                 source_params: Dict[str, Any], 
                 tau: float) -> Dict[str, Any]:

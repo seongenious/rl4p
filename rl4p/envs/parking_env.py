@@ -9,14 +9,11 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 from typing import Tuple, Dict, Any, Optional, List
-from dataclasses import dataclass
-import reeds_shepp as rs
-import pygame
 
 from envs.kinematic_model import simulate
-from envs.datatypes import State, Action
+from envs.datatypes import State, Action, Observation
 from envs.expert import Expert
-from envs.render import ParkingRenderer, RenderConfig
+from envs.render import ParkingRenderer
 from utils.unit import kph2mps, mps2kph, deg2rad, rad2deg, mod2pi
 
 
@@ -33,8 +30,8 @@ class ParkingEnv(gym.Env):
     
     Action:
         - Continuous action space: [steering_angle, acceleration]
-        - steering_angle: [-max_steering_angle, max_steering_angle]
-        - acceleration: [-max_accel, max_accel]
+        - steering_angle: [-1, 1]
+        - acceleration: [-1, 1]
     
     Reward:
         - Based on distance to goal, heading alignment, and collision penalty
@@ -55,19 +52,15 @@ class ParkingEnv(gym.Env):
         self.expert = Expert(config)
         
         # Define action and observation spaces
-        max_steering_angle = deg2rad(self.config['vehicle_config']['max_steering_angle'])
-        max_accel = self.config['vehicle_config']['max_accel']
         self.action_space = gym.spaces.Box(
-            low=np.array([-max_steering_angle, -max_accel]),
-            high=np.array([max_steering_angle, max_accel]),
-            dtype=np.float32
+            low=np.array([-1, -1]), high=np.array([1, 1]), dtype=np.float32
         )
         
         # Observation space: {vehicle state (5) + occupancy grid (256*256)}
         self.observation_space = gym.spaces.Dict({
           'vehicle_state': gym.spaces.Box(
-            low=np.array([-np.inf, -np.inf, -np.pi, 0., -1.]),
-            high=np.array([np.inf, np.inf, np.pi, np.inf, 1.]),
+            low=np.array([-jnp.inf, -jnp.inf, -jnp.pi, 0., -1.]),
+            high=np.array([jnp.inf, jnp.inf, jnp.pi, jnp.inf, 1.]),
             dtype=np.float32
           ),
           'occupancy_grid': gym.spaces.Box(
@@ -118,7 +111,7 @@ class ParkingEnv(gym.Env):
         
         return grid_y, grid_x  # Return (row, col)
     
-    def _get_occupancy_grid(self) -> np.ndarray:
+    def _get_occupancy_grid(self, seed) -> np.ndarray:
         """Get occupancy grid observation from vehicle perspective.
                     
         Returns:
@@ -131,7 +124,7 @@ class ParkingEnv(gym.Env):
         resolution = self.config['observation']['grid_resolution']
         
         # Initialize empty grid
-        self.occupancy_grid = np.zeros((grid_size, grid_size), dtype=np.float32)
+        self.occupancy_grid = jnp.zeros((grid_size, grid_size), dtype=jnp.float32)
                   
         return self.occupancy_grid
     
@@ -175,34 +168,34 @@ class ParkingEnv(gym.Env):
         
         return True
     
-    def _get_observation(self) -> Dict[str, Any]:
+    def _get_observation(self) -> Observation:
         """Get current observation.
         
         Returns:
-            Observation dictionary: {vehicle_state, occupancy_grid}.
+            Observation: {vehicle_state, occupancy_grid}.
         """
         if self.state is None:
             raise ValueError("Environment not initialized. Call reset() first.")
         
         # Vehicle state: [x, y, yaw, v, dir]
-        vehicle_state = np.array([
+        vehicle_state = jnp.array([
             self.state.x, self.state.y, self.state.yaw, self.state.v, self.state.dir
-        ], dtype=np.float32)
+        ], dtype=jnp.float32)
         
         # Occupancy grid
         occupancy_grid = self._get_occupancy_grid()
         
-        # Create observation dictionary
-        observation = {
-            'vehicle_state': vehicle_state,
-            'occupancy_grid': occupancy_grid
-        }
+        # Create observation
+        observation = Observation(
+            vehicle_state=vehicle_state,
+            occupancy_grid=occupancy_grid
+        )
                 
         return observation
     
-    def _calculate_reward(self, state: State, action: Action, 
+    def _compute_reward(self, state: State, action: Action, 
                          done: bool, truncated: bool) -> float:
-        """Calculate reward for current state and action.
+        """Compute reward for current state and action.
         
         Args:
             state: Current vehicle state.
@@ -214,13 +207,10 @@ class ParkingEnv(gym.Env):
             Reward value.
         """
         # Compute Reeds-Shepp path
-        radius = self.config['rs_path']['turning_radius']
-        start = (state.x, state.y, state.yaw)
-        goal = (0., 0., 0.)
-        length = rs.path_length(start, goal, radius)
+        path_length = self.expert.get_path_length(state, self.goal)
 
         # Path length penalty
-        reward = length * self.config['reward']['path_length']
+        reward = path_length * self.config['reward']['path_length']
 
         # Success bonus
         if done:
@@ -261,7 +251,7 @@ class ParkingEnv(gym.Env):
             yaw = np.random.uniform(-val, val)
 
             val = kph2mps(self.config['env']['max_initial_velocity'])
-            v = np.random.uniform(-val, val)
+            v = np.random.uniform(0, val)
             
             dir = np.random.choice([-1, 1])
             
@@ -299,10 +289,10 @@ class ParkingEnv(gym.Env):
         
         # Parse action
         max_steering_angle = deg2rad(self.config['vehicle_config']['max_steering_angle'])
-        steering_angle = np.clip(action[0], -max_steering_angle, max_steering_angle)
+        steering_angle = action[0] * max_steering_angle
         
         max_accel = self.config['vehicle_config']['max_accel']
-        acceleration = np.clip(action[1], -max_accel, max_accel)
+        acceleration = action[1] * max_accel
         
         # Create action object
         action = Action(delta=steering_angle, accel=acceleration)
@@ -331,8 +321,8 @@ class ParkingEnv(gym.Env):
         if self._check_collision(self.state) or self.step_count >= self.config['env']['max_steps']:
             truncated = True
         
-        # Calculate reward
-        reward = self._calculate_reward(self.state, action, done, truncated)
+        # Compute reward
+        reward = self._compute_reward(self.state, action, done, truncated)
         
         # Get observation
         observation = self._get_observation()
@@ -341,7 +331,6 @@ class ParkingEnv(gym.Env):
         info = {
             'vehicle_state': self.state,
             'rs_path': rs_path,
-            # 'expert_actions': expert_actions,
             'step_count': self.step_count,
         }
         
@@ -352,7 +341,7 @@ class ParkingEnv(gym.Env):
         
         Args:
             mode: Rendering mode ('human' for pygame window, 'rgb_array' for array).
-            **kwargs: Additional arguments. (reward, done, truncated, expert trajectory)
+            **kwargs: Additional arguments. (reward, done, truncated, rs_path)
 
         Returns:
             If mode is 'rgb_array', returns numpy array of the rendered frame.
@@ -379,7 +368,7 @@ class ParkingEnv(gym.Env):
         self.renderer.update_trajectory(self.state)
         
         # Parse kwargs
-        reward, done, truncated, expert = kwargs.values()
+        reward, done, truncated, rs_path = kwargs.values()
         
         # Render
         self.renderer.render(
@@ -388,7 +377,7 @@ class ParkingEnv(gym.Env):
             reward=reward,
             done=done,
             truncated=truncated,
-            expert=expert,
+            rs_path=rs_path,
         )
         
         # Handle events
