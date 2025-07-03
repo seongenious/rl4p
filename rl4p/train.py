@@ -15,16 +15,13 @@ import optax
 from tqdm import tqdm
 # from torch.utils.tensorboard import SummaryWriter
 
-from envs.parking_env import ParkingEnv
-from models.networks import PolicyNetwork, QNetwork, sample_action
-from models.trainer import (
-    create_train_state, create_networks, initialize_train_states,
-    compute_target_q, update_critic, update_actor, update_alpha, soft_update
+from env.parking_env import ParkingEnv
+from model.trainer import (
+    create_networks, create_train_state, train_step, soft_update, update_alpha
 )
-from utils.replay_buffer import ReplayBuffer
-from utils.io import (
-    load_yaml_config, load_transitions_into_buffer, 
-    save_checkpoint, load_checkpoint
+# from util.replay_buffer import ReplayBuffer
+from util.io import (
+    load_yaml_config, save_checkpoint
 )
 
 
@@ -54,7 +51,8 @@ def main():
     learning_rate = config['train']['learning_rate']
     gamma = config['train']['gamma']
     tau = config['train']['tau']
-        
+    alpha = config['train']['alpha']
+    
     # Training configurations
     num_episodes = config['train']['num_episodes']
     random_steps = config['train']['random_steps']
@@ -73,18 +71,10 @@ def main():
     
     # Create networks
     print('Initialize SAC model...')
-    rng = jax.random.PRNGKey(42)
-    actor, critic = create_networks()
-    actor_state, critic1_state, critic2_state = initialize_train_states(
-        rng, actor, critic, learning_rate=learning_rate)
-    target_critic1_params = critic1_state.params
-    target_critic2_params = critic2_state.params
-    
-    # Alpha-related variables for entropy regularization
-    log_alpha = jnp.array(0.0)  # log(alpha)
-    target_entropy = -2  # common default (-action_dim)
-    alpha_optimizer = optax.adam(3e-4)
-    alpha_opt_state = alpha_optimizer.init(log_alpha)
+    rng = jax.random.PRNGKey(0)
+    networks, network_params = create_networks(rng)
+    states = create_train_state(networks, network_params, learning_rate)
+    target_critic_params = states['critic'].params
     
     # Create replay buffer
     print('Initialize replay buffer...')
@@ -100,29 +90,23 @@ def main():
     for step in tqdm(range(num_episodes), desc="Training..."):
         # Reset episode 
         obs, info = env.reset()
+        done = False
         episode_reward = 0
                 
         # Run episode
-        while True:
+        while not done:
+            
+            feat = encoder.apply({'params': states['encoder'].params}, **obs_in)
+            rng, subrng = jax.random.split(rng)
+            _, _, action, _ = policy.apply({'params': states['policy'].params}, feat, subrng)
+            action = jax.device_get(action.squeeze())
+            
             # Policy
             rng, action_rng = jax.random.split(rng)
             action = env.action_space.sample() \
                 if step < random_steps else sample_action(actor, actor_state.params, obs, action_rng)[0]
             
             next_obs, reward, done, truncated, info = env.step(action)
-            
-            # Stack buffer
-            replay_buffer.add(
-                obs_vehicle_state=obs['vehicle_state'],
-                obs_occupancy_grid=obs['occupancy_grid'],
-                action=action,
-                next_obs_vehicle_state=next_obs['vehicle_state'],
-                next_obs_occupancy_grid=next_obs['occupancy_grid'],
-                reward=reward,
-                done=done,
-                truncated=truncated,
-                # expert_action=action,    
-            )
 
             # Render environment
             kwargs = {

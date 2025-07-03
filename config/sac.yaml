@@ -23,6 +23,9 @@ observation:
   # Occupancy grid
   grid_size: 256 # [-]
   grid_resolution: 0.2 # [m]
+  history_length: 3 # [-]
+  sigma: 1.0 # [m]
+  buffer: 3.0 # [m]
 
 env:
   # Simulation environment
@@ -43,6 +46,7 @@ train:
   learning_rate: 0.00003
   gamma: 0.99
   tau: 0.005
+  alpha: 0.2
   # Training
   num_episodes: 10000
   buffer_size: 1000

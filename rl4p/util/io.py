@@ -7,7 +7,7 @@ import numpy as np
 import optax
 from flax.training import train_state, checkpoints
 
-from utils.replay_buffer import ReplayBuffer
+from util.replay_buffer import ReplayBuffer
 
 
 def load_yaml_config(path: str) -> Dict[str, Any]:
