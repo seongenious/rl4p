@@ -4,28 +4,36 @@ from typing import Any, Tuple
 
 
 class OccupancyEncoder(nn.Module):
-    """CNN backbone for (T, H, W, C) input."""
+    """CNN backbone for (B, T, H, W, C) input."""
     hidden_dim: int = 128
     
     @nn.compact
-    def __call__(self, x) -> jnp.ndarray:  # x: (B, T, H, W, C)
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:  # x: (B, T, H, W, C)
+        if x.ndim == 4:
+            x = x[None, ...]
+            
         B, T, H, W, C = x.shape
-        x = x.reshape((B, H, W, T*C))  # (B, H, W, T*C)
         
-        x = nn.Conv(32, (5, 5), strides=1)(x)
+        # Reshape for 3D convolution: (B, T, H, W, C) -> (B, H, W, T*C), early fusion
+        x = x.reshape((B, H, W, T*C))  # (B, 256, 256, T*2)
+        
+        # 2D CNN with temporal channels
+        x = nn.Conv(32, (5, 5), strides=1, padding='SAME')(x)  # (B, 256, 256, 32)
         x = nn.relu(x)
-        x = nn.Conv(64, (3, 3), strides=2)(x)
+        x = nn.Conv(64, (3, 3), strides=2, padding='SAME')(x)  # (B, 128, 128, 64)
         x = nn.relu(x)
-        x = nn.Conv(128, (3, 3), strides=2)(x)
+        x = nn.Conv(128, (3, 3), strides=2, padding='SAME')(x)  # (B, 64, 64, 128)
         x = nn.relu(x)
-        x = nn.Conv(self.hidden_dim, (3, 3), strides=2)(x)  # (B*T, 32, 32, 128)
+        x = nn.Conv(self.hidden_dim, (3, 3), strides=2, padding='SAME')(x)  # (B, 32, 32, hidden_dim)
         x = nn.relu(x)
-        x = nn.Conv(self.hidden_dim, (3, 3), strides=2)(x)  # (B*T, 16, 16, 128)
+        x = nn.Conv(self.hidden_dim, (3, 3), strides=2, padding='SAME')(x)  # (B, 16, 16, hidden_dim)
+        x = nn.relu(x)
+        
+        # Reshape to grid tokens
+        x = x.reshape((B, 256, self.hidden_dim))  # (B, 256, hidden_dim)
+        
+        return x  # (B, 256, hidden_dim)
 
-        x = x.reshape((B, T, 16, 16, self.hidden_dim))  # (B, T, 16, 16, D)
-        x = jnp.mean(x, axis=1)  # Temporal average (B, 16, 16, D)
-        x = x.reshape((B, 256, self.hidden_dim))  # grid tokens
-        return x  # (B, 256, D)
 
 class StateEncoder(nn.Module):
     """Encode temporal vehicle state sequence into a single feature vector."""
@@ -34,13 +42,20 @@ class StateEncoder(nn.Module):
 
     @nn.compact
     def __call__(self, x):  # x: (B, T, 5)
+        if x.ndim == 2:
+            x = x[None, ...]
+            
+        # 1D CNN over T
         x = nn.Conv(
             features=self.hidden_dim, kernel_size=(3,), strides=(1,), padding='SAME')(x)  # (B, T, hidden)
         x = nn.relu(x)
         x = nn.Conv(
             features=self.output_dim, kernel_size=(1,), strides=(1,), padding='SAME')(x)  # (B, T, output)
-        x = jnp.mean(x, axis=1)  # Temporal pooling
-        return x  # (B, 128)
+        
+        # Temporal pooling
+        x = jnp.mean(x, axis=1)  
+        x = x[:, None, :]  # Unsqueeze to (B, 1, 128)
+        return x  # (B, 1, 128)
 
 class TransformerEncoder(nn.Module):
     num_layers: int = 3
@@ -67,19 +82,19 @@ class TransformerEncoder(nn.Module):
         return tokens
 
 class SacEncoder(nn.Module):
-    embed_dim: int = 128
+    feat_dim: int = 128
 
     @nn.compact
     def __call__(self, occ_grid: jnp.ndarray, state: jnp.ndarray) -> jnp.ndarray:
         # occ_grid: (B, 3, 256, 256, 2), state: (B, 5)
-        grid_tokens = OccupancyEncoder(hidden_dim=self.embed_dim)(occ_grid)  # (B, 256, D)
-        state_token = StateEncoder(embed_dim=self.embed_dim)(state)  # (B, 1, D)
-
+        grid_tokens = OccupancyEncoder(hidden_dim=self.feat_dim)(occ_grid)  # (B, 256, D)
+        state_token = StateEncoder(output_dim=self.feat_dim)(state)  # (B, 1, D)
         tokens = jnp.concatenate([state_token, grid_tokens], axis=1)  # (B, 257, D)
-        tokens = TransformerEncoder(embed_dim=self.embed_dim)(tokens)  # (B, 257, D)
+        tokens = TransformerEncoder(embed_dim=self.feat_dim)(tokens)  # (B, 257, D)
 
         # Feature aggregation
         state_out = tokens[:, 0]  # (B, D)
         grid_mean = jnp.mean(tokens[:, 1:], axis=1)  # (B, D)
         feat = jnp.concatenate([state_out, grid_mean], axis=-1)  # (B, 2*D = 256)
+        
         return feat  # (B, 256)

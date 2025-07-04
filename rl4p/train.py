@@ -13,11 +13,19 @@ import jax
 import jax.numpy as jnp
 import optax
 from tqdm import tqdm
+# import jax
+# jax.xla = lambda: None  # dummy
+# setattr(jax.xla, "Device", jax.Device)
+# from acme.jax import utils
+# from acme.jax import types
+# from acme import specs
+# from acme.jax import replay as acme_replay
 # from torch.utils.tensorboard import SummaryWriter
+
 
 from env.parking_env import ParkingEnv
 from model.trainer import (
-    create_networks, create_train_state, train_step, soft_update, update_alpha
+    create_networks, create_train_state, train_step, soft_update, sample_action
 )
 # from util.replay_buffer import ReplayBuffer
 from util.io import (
@@ -58,7 +66,6 @@ def main():
     random_steps = config['train']['random_steps']
     update_after = config['train']['update_after']
     update_every = config['train']['update_every']
-    updates_per_step = config['train']['updates_per_step']
     
     # Logger configurations
     log_interval = config['train']['log_interval']
@@ -78,7 +85,7 @@ def main():
     
     # Create replay buffer
     print('Initialize replay buffer...')
-    replay_buffer = ReplayBuffer(max_size=config['train']['buffer_size'])
+    # replay_buffer = ReplayBuffer(max_size=config['train']['buffer_size'])
 
     # Setup environment 
     print('Initialize parking env...')
@@ -87,7 +94,7 @@ def main():
     print('Complete to initialize.')
     start = time.time()
     
-    for step in tqdm(range(num_episodes), desc="Training..."):
+    for step in tqdm(range(num_episodes), desc="Training..."): 
         # Reset episode 
         obs, info = env.reset()
         done = False
@@ -95,28 +102,28 @@ def main():
                 
         # Run episode
         while not done:
+            rng, sub_rng = jax.random.split(rng)
             
-            feat = encoder.apply({'params': states['encoder'].params}, **obs_in)
-            rng, subrng = jax.random.split(rng)
-            _, _, action, _ = policy.apply({'params': states['policy'].params}, feat, subrng)
-            action = jax.device_get(action.squeeze())
+            # 1. Encode feature
+            feat = networks['encoder'].apply(
+                {'params': states['encoder'].params}, obs.occupancy_grid, obs.state)
             
-            # Policy
-            rng, action_rng = jax.random.split(rng)
-            action = env.action_space.sample() \
-                if step < random_steps else sample_action(actor, actor_state.params, obs, action_rng)[0]
+            # 2. Sample action
+            # if step < random_steps:
+            # action = env.action_space.sample() 
+            action, log_prob = sample_action(
+                networks['policy'], states['policy'].params, feat, sub_rng)
             
-            next_obs, reward, done, truncated, info = env.step(action)
-
-            # Render environment
-            kwargs = {
-                'reward': reward, 
-                'done': done, 
-                'truncated': truncated, 
-                'rs_path': info['rs_path']
-            }
+            # 3. Step
+            next_obs, reward, done, truncated, info = env.step(action[0])
             
-            env.render(**kwargs)
+            # 4. Update replay buffer
+            # replay_buffer.append(obs, action, reward, next_obs, done)
+            obs = next_obs
+            
+            # 5. Render environment
+            kwargs = {'reward': reward, 'done': done, 'truncated': truncated, 'rs_path': info['rs_path']}
+            env.render(obs, **kwargs)
             
             if done or truncated: 
                 episode_reward = reward
@@ -124,80 +131,21 @@ def main():
         
         # Network update
         if step >= update_after and step % update_every == 0:
-            for _ in range(updates_per_step):
-                rng, sample_rng = jax.random.split(rng)
-                batch = replay_buffer.sample(batch_size=batch_size, rng=sample_rng)
-                
-                # 1. compute target Q using target critic and actor
-                alpha = jnp.exp(log_alpha)
-                rng, target_rng = jax.random.split(rng)
-                target_q, target_rng = compute_target_q(
-                    actor_params=actor_state.params,
-                    target_critic1_params=target_critic1_params,
-                    target_critic2_params=target_critic2_params,
-                    critic_apply_fn=critic1_state.apply_fn,  # both critics share same fn
-                    actor_apply_fn=actor_state.apply_fn,
-                    rng=target_rng,
-                    next_obs=batch['next_obs'],
-                    reward=batch['reward'],
-                    done=batch['done'],
-                    gamma=gamma,
-                    alpha=alpha
-                )
-                
-                # 2. critic update
-                critic1_state, critic1_loss = update_critic(
-                    critic1_state, target_q, batch['obs'], batch['action']
-                )
-                critic2_state, critic2_loss = update_critic(
-                    critic2_state, target_q, batch['obs'], batch['action']
-                )
-                
-                # 3. actor update
-                rng, actor_rng = jax.random.split(rng)
-                actor_state, actor_loss, log_prob = update_actor(
-                    actor_state=actor_state,
-                    critic_params=critic1_state.params,
-                    critic_apply_fn=critic1_state.apply_fn,
-                    rng=actor_rng,
-                    obs=batch['obs'],
-                    alpha=alpha
-                )
-
-                # 4. alpha update
-                log_alpha, alpha_opt_state, alpha_loss = update_alpha(
-                    log_alpha=log_alpha,
-                    alpha_opt_state=alpha_opt_state,
-                    log_prob=log_prob,
-                    target_entropy=target_entropy,
-                    alpha_optimizer=alpha_optimizer
-                )
-
-                # 5. soft update
-                target_critic1_params = soft_update(
-                    target_critic1_params, critic1_state.params, tau
-                )
-                target_critic2_params = soft_update(
-                    target_critic2_params, critic2_state.params, tau
-                )
-
-        # Log and save checkpoint
-        if step >= update_after and step % log_interval == 0:
-            # logger.add_scalar('actor_loss', actor_loss, step)
-            # logger.add_scalar('critic/loss1', critic1_loss, step)
-            # logger.add_scalar('critic/loss2', critic2_loss, step)
-            # logger.add_scalar('alpha_loss', alpha_loss, step)
-            # logger.add_scalar('reward', episode_reward, step)
+            batch = replay_buffer.sample(batch_size)
+            rng, sub_rng = jax.random.split(rng)
             
-            save_checkpoint(
-                step=step, 
-                actor_state=actor_state, 
-                critic1_state=critic1_state, 
-                critic2_state=critic2_state, 
-                log_alpha=log_alpha, 
-                alpha_opt_state=alpha_opt_state, 
-                ckpt_dir=ckpt_dir
-            )
+            states, logs = train_step(sub_rng, states, batch, alpha, target_critic_params, gamma)
+            target_critic_params = soft_update(target_critic_params, states['critic'].params, tau)
+
+            if step % log_interval == 0:
+                print(f"Episode {step}, Actor Loss: {logs['actor_loss']:.3f}, Critic Loss: {logs['critic_loss']:.3f}")
+                save_checkpoint(
+                    step=step, 
+                    actor_state=states['policy'], 
+                    critic1_state=states['critic'], 
+                    critic2_state=states['critic'],  
+                    ckpt_dir=ckpt_dir
+                )
 
     print(f'Training completed in {time.time() - start:.2f}s.')
 

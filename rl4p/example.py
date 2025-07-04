@@ -9,10 +9,10 @@ def main() -> None:
     """Main function for data generation."""
     # Get configuration in yaml
     config = load_yaml_config('./config/sac.yaml')
-    num_episodes = 100
+    num_episodes = 10
 
     # Setup environment 
-    env = ParkingEnv(config, True)
+    env = ParkingEnv(config, render=True)
         
     # Run episodes
     for _ in tqdm(range(num_episodes), desc='Run episodes'):

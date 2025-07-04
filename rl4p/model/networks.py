@@ -21,7 +21,7 @@ class PolicyNetwork(nn.Module):
         mu = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
         log_std = jnp.clip(log_std, -20.0, 2.0)
-        
+    
         return mu, log_std
 
 class QNetwork(nn.Module):
@@ -30,7 +30,7 @@ class QNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, feat: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
-        """ x: (B, 256) """
+        """ x: (B, 1, 256) """
         x = jnp.concatenate([feat, action], axis=-1)  # (B, 256+2)
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
@@ -49,28 +49,32 @@ class TwinQNetwork(nn.Module):
 
 def sample_action(actor: PolicyNetwork, 
                   params: Dict, 
-                #   obs: Observation,
-                  rng: Optional[jax.random.PRNGKey] = None) -> jnp.ndarray:
+                  feat: jnp.ndarray,
+                  rng: Optional[jax.random.PRNGKey] = None) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """Perform policy inference to get actions. Dependent on whether rng is provided, 
     the action is deterministic or stochastic.
     
     Args:
         actor: Actor network definition.
         params: Actor network parameters.
-        obs: Observation.
+        feat: Feature.
         rng: Random number generator key.
 
     Returns:
-        Actions, shape: (batch_size, action_dim).
+        action: Actions, shape: (batch_size, action_dim).
+        log_prob: Log probabilities, shape: (batch_size, 1).
     """
-    # mu, log_std = actor.apply(params, obs)
-    
-    # if rng is None:
-    #     # Deterministic action
-    #     return jnp.tanh(mu)
-    # else:
-    #     # Stochastic action
-    #     std = jnp.exp(log_std)
-    #     noise = jax.random.normal(rng, shape=mu.shape)
-    #     return jnp.tanh(mu + noise * std)
-    pass
+    mu, log_std = actor.apply({'params': params}, feat)
+    action, log_prob = 0, jnp.zeros_like(mu)
+        
+    if rng is None:
+        action = jnp.tanh(mu)
+    else:
+        std = jnp.exp(log_std)
+        noise = jax.random.normal(rng, shape=mu.shape)
+        action = jnp.tanh(mu + noise * std)
+        
+        log_prob = -0.5 * ((noise**2) + 2*log_std + jnp.log(2 * jnp.pi))
+        log_prob = jnp.sum(log_prob, axis=-1, keepdims=True)
+
+    return action, log_prob

@@ -79,7 +79,9 @@ class ParkingEnv(gym.Env):
         self.state: Optional[State] = None
         self.goal = State(x=0., y=0., yaw=0., v=0., dir=1.)
         self.occupancy_grid: Optional[jnp.ndarray] = None
-        self.history_buffer: Optional[HistoryBuffer] = None
+        
+        self.occupancy_buffer: Optional[HistoryBuffer] = None
+        self.state_buffer: Optional[HistoryBuffer] = None
         self.step_count: int = 0
         
         # Renderer
@@ -110,8 +112,9 @@ class ParkingEnv(gym.Env):
         # Reset variables
         self.step_count = 0
         self.occupancy_grid = None
-        self.history_buffer = HistoryBuffer(maxlen=self.config['observation']['history_length'])
-        
+        self.occupancy_buffer = HistoryBuffer(maxlen=self.config['observation']['history_length'])
+        self.state_buffer = HistoryBuffer(maxlen=self.config['observation']['history_length'])
+                
         # Clear trajectory if renderer exists
         if self.renderer is not None:
             self.renderer.clear_trajectory()
@@ -221,6 +224,7 @@ class ParkingEnv(gym.Env):
             raise ValueError("Environment not initialized. Call reset() first.")
 
         if not self.enable_render:
+            print('return')
             return
         
         # Initialize renderer if not already done
@@ -302,7 +306,10 @@ class ParkingEnv(gym.Env):
         self._update_occupancy_grid(state)
         
         # Get stacked occupancy grid
-        obs = Observation(occupancy_grid=self.history_buffer.get_stacked())
+        obs = Observation(
+            occupancy_grid=self.occupancy_buffer.get_stacked(), 
+            state=self.state_buffer.get_stacked()
+        )
         
         return obs
     
@@ -381,7 +388,8 @@ class ParkingEnv(gym.Env):
         self.occupancy_grid = jnp.stack([obs_grid, ego_grid], axis=-1)  # (H, W, 2)
 
         # Update history buffer
-        self.history_buffer.append(self.occupancy_grid)
+        self.occupancy_buffer.append(self.occupancy_grid)        
+        self.state_buffer.append(jnp.array([state.x, state.y, state.yaw, state.v, state.dir]))
         
     def _create_polygon(self, 
                         center: jnp.ndarray, 

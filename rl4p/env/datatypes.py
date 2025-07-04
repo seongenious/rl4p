@@ -34,19 +34,36 @@ class Transition:
 @chex.dataclass
 class Observation:
     occupancy_grid: jnp.ndarray   # shape = (batch, N, H, W, C)
-    
+    state: jnp.ndarray           # shape = (batch, 5)
+
 
 class HistoryBuffer:
     def __init__(self, maxlen: int):
         self.buffer = deque(maxlen=maxlen)
+        self.maxlen = maxlen
 
     def append(self, item: jnp.ndarray) -> None:
         """Append an item to the buffer.
         
+        If the buffer is not full (size < maxlen), the first item is copied
+        and inserted at the beginning to fill the buffer.
+        
         Args:
             item: An item to append. (256, 256, C)
         """
-        self.buffer.append(item)
+        # If buffer is empty, fill it with the first item repeated maxlen times
+        if len(self.buffer) == 0:
+            for _ in range(self.maxlen):
+                self.buffer.append(item)
+        # If buffer is not full but has items, copy the first item and insert at beginning
+        elif len(self.buffer) < self.maxlen:
+            # Copy the first item and insert at the beginning
+            first_item = self.buffer[0]
+            self.buffer.appendleft(first_item)
+            self.buffer.append(item)
+        else:
+            # Buffer is full, just append (will automatically remove oldest item)
+            self.buffer.append(item)
 
     def get_stacked(self) -> jnp.ndarray:
         """Get stacked items from the buffer.

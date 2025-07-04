@@ -79,7 +79,6 @@ def train_step(rng: jax.random.PRNGKey,
                batch: Dict[str, jnp.ndarray],
                alpha: float,
                target_critic_params: Dict[str, jnp.ndarray],
-               tau: float,
                gamma: float) -> Tuple[Dict[str, train_state.TrainState], Dict[str, jnp.ndarray]]:
     """Perform a training step.
     
@@ -89,7 +88,6 @@ def train_step(rng: jax.random.PRNGKey,
         batch: Dictionary of batch data.
         alpha: Entropy coefficient.
         target_critic_params: Target critic parameters.
-        tau: Soft update coefficient.
         gamma: Discount factor.
         
     Returns:

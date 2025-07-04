@@ -296,13 +296,13 @@ class ParkingRenderer:
         status_surface = self.font.render(status_text, True, status_color)
         self.screen.blit(status_surface, (20, 170))
     
-    def draw_observation(self, obs: Observation):
+    def draw_occupancy_grid(self, occupancy_grid: jnp.ndarray):
         """Draw observation.
         
         Args:
-            obs: Observation.
+            occupancy_grid: Occupancy grid.
         """
-        grid = obs.occupancy_grid[-1, ...]
+        grid = occupancy_grid[-1, ...]
         if isinstance(grid, jnp.ndarray):
             grid = np.array(grid)
         
@@ -368,7 +368,7 @@ class ParkingRenderer:
         self.screen.fill(self.config.DARK_BG)
         
         # Draw observation
-        self.draw_observation(obs)
+        self.draw_occupancy_grid(obs.occupancy_grid)
         
         # Draw parking slot
         self.draw_parking_slot(done)
