@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from env.datatypes import State, Action, Transition
+from env.datatypes import State, Action
 from util.unit import mod2pi
 
 ZERO_SPEED = 0.03

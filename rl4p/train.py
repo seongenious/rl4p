@@ -13,24 +13,16 @@ import jax
 import jax.numpy as jnp
 import optax
 from tqdm import tqdm
-# import jax
-# jax.xla = lambda: None  # dummy
-# setattr(jax.xla, "Device", jax.Device)
-# from acme.jax import utils
-# from acme.jax import types
-# from acme import specs
-# from acme.jax import replay as acme_replay
 # from torch.utils.tensorboard import SummaryWriter
-
 
 from env.parking_env import ParkingEnv
 from model.trainer import (
     create_networks, create_train_state, train_step, soft_update, sample_action
 )
-# from util.replay_buffer import ReplayBuffer
-from util.io import (
-    load_yaml_config, save_checkpoint
+from model.replay_buffer import (
+    ReplayBuffer, create_buffer, add_buffer, sample_batch_transitions
 )
+from util.io import load_yaml_config, save_checkpoint
 
 
 def parse_args():
@@ -84,14 +76,11 @@ def main():
     target_critic_params = states['critic'].params
     
     # Create replay buffer
-    print('Initialize replay buffer...')
-    # replay_buffer = ReplayBuffer(max_size=config['train']['buffer_size'])
+    replay_buffer = create_buffer()
 
     # Setup environment 
-    print('Initialize parking env...')
     env = ParkingEnv(config, config['train']['render'])
     
-    print('Complete to initialize.')
     start = time.time()
     
     for step in tqdm(range(num_episodes), desc="Training..."): 
@@ -109,16 +98,16 @@ def main():
                 {'params': states['encoder'].params}, obs.occupancy_grid, obs.state)
             
             # 2. Sample action
-            # if step < random_steps:
-            # action = env.action_space.sample() 
-            action, log_prob = sample_action(
-                networks['policy'], states['policy'].params, feat, sub_rng)
-            
+            action = env.action_space.sample() if step < random_steps else sample_action(
+                networks['policy'], states['policy'].params, feat, sub_rng)[0]
+            if action.ndim == 2: 
+                action = action[0]
+
             # 3. Step
-            next_obs, reward, done, truncated, info = env.step(action[0])
+            next_obs, reward, done, truncated, info = env.step(action)
             
             # 4. Update replay buffer
-            # replay_buffer.append(obs, action, reward, next_obs, done)
+            add_buffer(replay_buffer, obs, action, reward, done or truncated, next_obs)
             obs = next_obs
             
             # 5. Render environment
@@ -131,11 +120,13 @@ def main():
         
         # Network update
         if step >= update_after and step % update_every == 0:
-            batch = replay_buffer.sample(batch_size)
+            batch = sample_batch_transitions(replay_buffer, rng)
             rng, sub_rng = jax.random.split(rng)
             
-            states, logs = train_step(sub_rng, states, batch, alpha, target_critic_params, gamma)
-            target_critic_params = soft_update(target_critic_params, states['critic'].params, tau)
+            states, logs = train_step(
+                sub_rng, states, batch, alpha, target_critic_params, gamma)
+            target_critic_params = soft_update(
+                target_critic_params, states['critic'].params, tau)
 
             if step % log_interval == 0:
                 print(f"Episode {step}, Actor Loss: {logs['actor_loss']:.3f}, Critic Loss: {logs['critic_loss']:.3f}")

@@ -27,7 +27,6 @@ RUN pip install --upgrade pip setuptools wheel
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 # JAX with CUDA - 호환성 있는 버전으로 고정
 RUN pip install --upgrade "jax[cuda12]" 
-# -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 
 # Core packages
 RUN pip install --no-cache-dir \

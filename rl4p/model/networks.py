@@ -1,6 +1,7 @@
 from flax import linen as nn
 import jax
 import jax.numpy as jnp
+import distrax
 from typing import  Tuple, Optional, Dict
 
 from model.encoder import SacEncoder
@@ -64,17 +65,15 @@ def sample_action(actor: PolicyNetwork,
         action: Actions, shape: (batch_size, action_dim).
         log_prob: Log probabilities, shape: (batch_size, 1).
     """
-    mu, log_std = actor.apply({'params': params}, feat)
-    action, log_prob = 0, jnp.zeros_like(mu)
+    mu, log_std = actor.apply_fn({'params': params}, feat)
+    action, log_prob = [0, 0], jnp.zeros_like(mu).sum(axis=-1)
         
     if rng is None:
         action = jnp.tanh(mu)
     else:
         std = jnp.exp(log_std)
-        noise = jax.random.normal(rng, shape=mu.shape)
-        action = jnp.tanh(mu + noise * std)
-        
-        log_prob = -0.5 * ((noise**2) + 2*log_std + jnp.log(2 * jnp.pi))
-        log_prob = jnp.sum(log_prob, axis=-1, keepdims=True)
+        dist = distrax.Transformed(distrax.Normal(mu, std), distrax.Tanh())
+        action = dist.sample(seed=rng)
+        log_prob = dist.log_prob(action).sum(axis=-1)
 
     return action, log_prob

@@ -29,7 +29,7 @@ observation:
 
 env:
   # Simulation environment
-  max_steps: 200 # [-]
+  max_steps: 20 # [-]
   dt: 0.1 # [s]
   # Random initial state
   max_initial_position: 5.0 # [m]
@@ -48,11 +48,11 @@ train:
   tau: 0.005
   alpha: 0.2
   # Training
-  num_episodes: 10
-  buffer_size: 10
-  random_steps: 1
+  num_episodes: 1000
+  random_steps: 100
   update_after: 0
   update_every: 1
+  update_repeat: 1
   log_interval: 1
   # Checkpoint
   render: true

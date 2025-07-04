@@ -310,7 +310,7 @@ class ParkingRenderer:
         cell_size = int(self.grid_resolution * self.config.scale)
         
         # Normalize and clip
-        grid = np.clip(grid, 0.0, 1.0)
+        # grid = np.clip(grid, 0.0, 1.0)
         
         red = (grid[..., 0] * 255).astype(np.uint8)
         green = (grid[..., 1] * 255).astype(np.uint8)

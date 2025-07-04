@@ -139,7 +139,7 @@ class ParkingEnv(gym.Env):
             
             # Get initial observation
             obs = self._get_observation(state)
-            
+
             # Check if initial state is valid (no collision)
             if not check_collision(obs.occupancy_grid):
                 self.state = state
@@ -224,7 +224,6 @@ class ParkingEnv(gym.Env):
             raise ValueError("Environment not initialized. Call reset() first.")
 
         if not self.enable_render:
-            print('return')
             return
         
         # Initialize renderer if not already done
@@ -385,7 +384,9 @@ class ParkingEnv(gym.Env):
         )
         
         # Update occupancy grid
-        self.occupancy_grid = jnp.stack([obs_grid, ego_grid], axis=-1)  # (H, W, 2)
+        self.occupancy_grid = jnp.clip(
+            jnp.stack([obs_grid, ego_grid], axis=-1), 0.0, 1.0)  # (H, W, 2)
+        # self.occupancy_grid = (255.0 * self.occupancy_grid).astype(jnp.uint8)
 
         # Update history buffer
         self.occupancy_buffer.append(self.occupancy_grid)        
@@ -536,7 +537,7 @@ def create_gaussian_buffered_mask(
 
     masks = jax.vmap(single_buffered_mask)(grid_polygons)
     total_mask = jnp.clip(jnp.sum(masks, axis=0), 0.0, 1.0)
-    
+
     return total_mask  # shape: (H, W)
 
 @jax.jit

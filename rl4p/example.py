@@ -18,7 +18,6 @@ def main() -> None:
     for _ in tqdm(range(num_episodes), desc='Run episodes'):
       # Run episode
       obs, info = env.reset()
-
       while True:
         action = env.action_space.sample()  # Random action
         obs, reward, done, truncated, info = env.step(action)

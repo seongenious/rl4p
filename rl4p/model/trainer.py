@@ -76,7 +76,7 @@ def create_train_state(networks: Dict[str, Any],
 @jax.jit
 def train_step(rng: jax.random.PRNGKey,
                states: Dict[str, train_state.TrainState],
-               batch: Dict[str, jnp.ndarray],
+               batch: Dict[str, Any],
                alpha: float,
                target_critic_params: Dict[str, jnp.ndarray],
                gamma: float) -> Tuple[Dict[str, train_state.TrainState], Dict[str, jnp.ndarray]]:
@@ -93,28 +93,27 @@ def train_step(rng: jax.random.PRNGKey,
     Returns:
         Tuple of (updated states, logs).
     """
+    rng, sub_rng1, sub_rng2 = jax.random.split(rng, 3)
+    
     def loss_fn(params):
         # 1. Encode feature
         feat = states['encoder'].apply_fn(
-            {'params': params['encoder']}, batch['obs_occupancy_grid'], batch['obs_vehicle_state'])
+            {'params': params['encoder']}, batch['obs'].occupancy_grid, batch['obs'].state)
 
         # 2. Sample action
-        mu, log_std = states['policy'].apply_fn({'params': params['policy']}, feat)
+        action, log_prob = sample_action(   
+            states['policy'], params['policy'], feat, sub_rng1)
 
         # 3. Q-values from critic
         q1, q2 = states['critic'].apply_fn({'params': params['critic']}, feat, batch['action'])
 
         # 4. Update target Q
         next_feat = states['encoder'].apply_fn(
-            {'params': params['encoder']}, batch['next_obs_occupancy_grid'], batch['next_obs_vehicle_state'])
-        next_mu, next_log_std = states['policy'].apply_fn({'params': params['policy']}, next_feat)
-        next_std = jnp.exp(next_log_std)
-        next_dist = distrax.Normal(next_mu, next_std)
-        next_action = next_dist.sample(seed=rng)
-        next_log_prob = next_dist.log_prob(next_action).sum(axis=-1)
-
+            {'params': params['encoder']}, batch['next_obs'].occupancy_grid, batch['next_obs'].state)
+        next_action, next_log_prob = sample_action(
+            states['policy'], params['policy'], next_feat, sub_rng2)
         target_q1, target_q2 = states['critic'].apply_fn(
-            {'params': target_critic_params}, next_feat, jnp.tanh(next_action))
+            {'params': target_critic_params}, next_feat, next_action)
         min_q = jnp.minimum(target_q1, target_q2)
         target_q = batch['reward'] + gamma * (1.0 - batch['done']) * (min_q - alpha * next_log_prob)
         
@@ -122,14 +121,12 @@ def train_step(rng: jax.random.PRNGKey,
         critic_loss = jnp.mean((q1 - target_q) ** 2 + (q2 - target_q) ** 2)
 
         # 6. Actor loss
-        q1_pi, _ = states['critic'].apply_fn({'params': params['critic']}, feat, jnp.tanh(next_action))
+        q1_pi, _ = states['critic'].apply_fn({'params': params['critic']}, feat, next_action)
         actor_loss = jnp.mean(alpha * log_prob - q1_pi)
 
         total_loss = critic_loss + actor_loss
         return total_loss, {
-            'critic_loss': critic_loss,
-            'actor_loss': actor_loss,
-            'log_prob': log_prob
+            'critic_loss': critic_loss,'actor_loss': actor_loss,'log_prob': log_prob
         }
 
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)

@@ -13,29 +13,15 @@ class State:
     v: float    # [m/s]
     dir: int=1  # 1: forward, -1: reverse
 
-
 @chex.dataclass
 class Action:
     delta: float  # [-1, 1] normalized
     accel: float  # [-1, 1] normalized
 
-
-@chex.dataclass
-class Transition:
-    obs: Dict[str, Any]
-    action: Action
-    next_obs: Dict[str, Any]
-    reward: float
-    done: bool
-    truncated: bool
-    expert: Action
-
-
 @chex.dataclass
 class Observation:
-    occupancy_grid: jnp.ndarray   # shape = (batch, N, H, W, C)
+    occupancy_grid: jnp.ndarray  # shape = (batch, N, H, W, C)
     state: jnp.ndarray           # shape = (batch, 5)
-
 
 class HistoryBuffer:
     def __init__(self, maxlen: int):
