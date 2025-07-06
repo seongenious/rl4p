@@ -47,7 +47,6 @@ def main():
     config = load_yaml_config('./config/sac.yaml')
     
     # Network configurations
-    batch_size = config['train']['batch_size']
     learning_rate = config['train']['learning_rate']
     gamma = config['train']['gamma']
     tau = config['train']['tau']
@@ -58,7 +57,8 @@ def main():
     random_steps = config['train']['random_steps']
     update_after = config['train']['update_after']
     update_every = config['train']['update_every']
-    
+    update_repeat = config['train']['update_repeat']
+
     # Logger configurations
     log_interval = config['train']['log_interval']
     log_dir = os.path.join("./runs", datetime.now().strftime("%Y%m%d-%H%M%S"))
@@ -83,11 +83,14 @@ def main():
     
     start = time.time()
     
-    for step in tqdm(range(num_episodes), desc="Training..."): 
+    # Training loop
+    pbar = tqdm(range(num_episodes))
+    for step in pbar: 
+        pbar.set_description(f"Episode {step}")
+
         # Reset episode 
         obs, info = env.reset()
         done = False
-        episode_reward = 0
                 
         # Run episode
         while not done:
@@ -99,7 +102,7 @@ def main():
             
             # 2. Sample action
             action = env.action_space.sample() if step < random_steps else sample_action(
-                networks['policy'], states['policy'].params, feat, sub_rng)[0]
+                states['policy'], states['policy'].params, feat, sub_rng)[0]
             if action.ndim == 2: 
                 action = action[0]
 
@@ -113,23 +116,28 @@ def main():
             # 5. Render environment
             kwargs = {'reward': reward, 'done': done, 'truncated': truncated, 'rs_path': info['rs_path']}
             env.render(obs, **kwargs)
+
+            desc = f"Episode {step} - Random action" \
+                if step < random_steps else f"Episode {step} - Trained action"
+            pbar.set_description(desc)
             
             if done or truncated: 
-                episode_reward = reward
                 break
         
         # Network update
         if step >= update_after and step % update_every == 0:
-            batch = sample_batch_transitions(replay_buffer, rng)
-            rng, sub_rng = jax.random.split(rng)
-            
-            states, logs = train_step(
-                sub_rng, states, batch, alpha, target_critic_params, gamma)
-            target_critic_params = soft_update(
-                target_critic_params, states['critic'].params, tau)
+            for _ in range(update_repeat):
+                batch = sample_batch_transitions(replay_buffer, rng)
+                rng, sub_rng = jax.random.split(rng)
+                
+                states, logs = train_step(
+                    sub_rng, states, batch, alpha, target_critic_params, gamma)
+                target_critic_params = soft_update(
+                    target_critic_params, states['critic'].params, tau)
+
+                pbar.set_postfix(actor_loss=logs['actor_loss'], critic_loss=logs['critic_loss'])
 
             if step % log_interval == 0:
-                print(f"Episode {step}, Actor Loss: {logs['actor_loss']:.3f}, Critic Loss: {logs['critic_loss']:.3f}")
                 save_checkpoint(
                     step=step, 
                     actor_state=states['policy'], 
@@ -138,7 +146,11 @@ def main():
                     ckpt_dir=ckpt_dir
                 )
 
-    print(f'Training completed in {time.time() - start:.2f}s.')
+    elapsed = time.time() - start
+    hours = int(elapsed // 3600)
+    minutes = int((elapsed % 3600) // 60)
+    seconds = int(elapsed % 60)
+    print(f"Training completed in {hours:02d}:{minutes:02d}:{seconds:02d}.")
 
 
 if __name__ == '__main__':

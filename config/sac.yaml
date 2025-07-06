@@ -42,18 +42,23 @@ env:
 
 train:
   # Hyper parameters
-  batch_size: 10
   learning_rate: 0.00003
   gamma: 0.99
   tau: 0.005
   alpha: 0.2
   # Training
-  num_episodes: 1000
-  random_steps: 100
-  update_after: 0
+  # num_episodes: 1000
+  # random_steps: 200
+  # update_after: 50
+  # update_every: 50
+  # update_repeat: 10
+  # log_interval: 10
+  num_episodes: 10
+  random_steps: 2
+  update_after: 1
   update_every: 1
-  update_repeat: 1
+  update_repeat: 3
   log_interval: 1
   # Checkpoint
-  render: true
+  render: false
   dir: "./checkpoints"

@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 import distrax
 from typing import  Tuple, Optional, Dict
+from flax.training import train_state
 
 from model.encoder import SacEncoder
 
@@ -48,7 +49,7 @@ class TwinQNetwork(nn.Module):
         q2 = QNetwork(hidden_dims=self.hidden_dims)(feat, action)
         return q1, q2  # both shape: (B,)
 
-def sample_action(actor: PolicyNetwork, 
+def sample_action(actor: train_state.TrainState, 
                   params: Dict, 
                   feat: jnp.ndarray,
                   rng: Optional[jax.random.PRNGKey] = None) -> Tuple[jnp.ndarray, jnp.ndarray]:

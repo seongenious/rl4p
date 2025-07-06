@@ -56,6 +56,8 @@ def save_checkpoint(step: int,
         critic2_state: Second critic network training state.
         ckpt_dir: Directory to save checkpoint.
     """
+    os.makedirs(ckpt_dir, exist_ok=True)
+
     with open(ckpt_dir + f"/checkpoint_{step}.pkl", "wb") as f:
         f.write(serialization.to_bytes(actor_state))
         f.write(serialization.to_bytes(critic1_state))
