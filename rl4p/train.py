@@ -60,7 +60,6 @@ def main():
     update_repeat = config['train']['update_repeat']
 
     # Logger configurations
-    log_interval = config['train']['log_interval']
     log_dir = os.path.join("./runs", datetime.now().strftime("%Y%m%d-%H%M%S"))
     logger = SummaryWriter(log_dir)
     
@@ -130,7 +129,7 @@ def main():
                 break
         
         # Network update
-        if step >= update_after and step % update_every == 0:
+        if step >= update_after and (step + 1) % update_every == 0:
             for _ in range(update_repeat):
                 batch = sample_batch_transitions(replay_buffer, rng)
                 rng, sub_rng = jax.random.split(rng)
@@ -140,16 +139,15 @@ def main():
                 target_critic_params = soft_update(
                     target_critic_params, states['critic'].params, tau)
 
-            if step % log_interval == 0:
-                logger.add_scalar("Loss/Actor", float(logs['actor_loss']), step)
-                logger.add_scalar("Loss/Critic", float(logs['critic_loss']), step)
-                save_checkpoint(
-                    step=step, 
-                    encoder_state=states['encoder'],
-                    actor_state=states['actor'], 
-                    critic_state=states['critic'], 
-                    ckpt_dir=ckpt_dir
-                )
+            logger.add_scalar("Loss/Actor", float(logs['actor_loss']), step)
+            logger.add_scalar("Loss/Critic", float(logs['critic_loss']), step)
+            save_checkpoint(
+                step=step, 
+                encoder_state=states['encoder'],
+                actor_state=states['actor'], 
+                critic_state=states['critic'], 
+                ckpt_dir=ckpt_dir
+            )
                 
     logger.close()
     

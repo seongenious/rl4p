@@ -53,13 +53,11 @@ train:
   # update_after: 50
   # update_every: 50
   # update_repeat: 10
-  # log_interval: 10
-  num_episodes: 100
-  random_steps: 20
-  update_after: 10  
-  update_every: 5
+  num_episodes: 30
+  random_steps: 5
+  update_after: 5  
+  update_every: 3
   update_repeat: 2
-  log_interval: 5
   # Checkpoint
   render: false
   dir: "./checkpoints"
