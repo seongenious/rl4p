@@ -4,7 +4,7 @@ This module contains training functions for Soft Actor-Critic (SAC) algorithm.
 """
 
 import time
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, Any, Optional
 
 import jax
 import jax.numpy as jnp
@@ -26,23 +26,23 @@ def create_networks(rng: jax.random.PRNGKey) -> Tuple[Dict[str, Any], Dict[str, 
         Tuple of (networks, network_params).
     """
     encoder = SacEncoder()
-    policy = PolicyNetwork()
+    actor = PolicyNetwork()
     critic = TwinQNetwork()
     
     networks = {
         'encoder': encoder,
-        'policy': policy,
+        'actor': actor,
         'critic': critic
     }
     
     rng, rng1, rng2, rng3 = jax.random.split(rng, 4)
     encoder_params = encoder.init(rng1, jnp.zeros([1, 3, 256, 256, 2]), jnp.zeros([1, 3, 5]))['params']
-    policy_params = policy.init(rng2, jnp.zeros([1, 256]))['params']
+    actor_params = actor.init(rng2, jnp.zeros([1, 256]))['params']
     critic_params = critic.init(rng3, jnp.zeros([1, 256]), jnp.zeros([1, 2]))['params']
     
     network_params = {
         'encoder': encoder_params,
-        'policy': policy_params,
+        'actor': actor_params,
         'critic': critic_params
     }
 
@@ -50,7 +50,7 @@ def create_networks(rng: jax.random.PRNGKey) -> Tuple[Dict[str, Any], Dict[str, 
 
 def create_train_state(networks: Dict[str, Any],
                        network_params: Dict[str, Any],
-                       learning_rate: float) -> Dict[str, Any]:
+                       learning_rate: Optional[float] = 3e-4) -> Dict[str, Any]:
     """Initialize the Flax TrainState with model parameters and optimizer.
 
     Args:
@@ -65,8 +65,8 @@ def create_train_state(networks: Dict[str, Any],
     states = {
         'encoder': train_state.TrainState.create(
             apply_fn=networks['encoder'].apply, params=network_params['encoder'], tx=tx),
-        'policy': train_state.TrainState.create(
-            apply_fn=networks['policy'].apply, params=network_params['policy'], tx=tx),
+        'actor': train_state.TrainState.create(
+            apply_fn=networks['actor'].apply, params=network_params['actor'], tx=tx),
         'critic': train_state.TrainState.create(
             apply_fn=networks['critic'].apply, params=network_params['critic'], tx=tx),
     }
@@ -102,7 +102,7 @@ def train_step(rng: jax.random.PRNGKey,
 
         # 2. Sample action
         action, log_prob = sample_action(   
-            states['policy'], params['policy'], feat, sub_rng1)
+            states['actor'], params['actor'], feat, sub_rng1)
 
         # 3. Q-values from critic
         q1, q2 = states['critic'].apply_fn({'params': params['critic']}, feat, batch['action'])
@@ -111,18 +111,20 @@ def train_step(rng: jax.random.PRNGKey,
         next_feat = states['encoder'].apply_fn(
             {'params': params['encoder']}, batch['next_obs'].occupancy_grid, batch['next_obs'].state)
         next_action, next_log_prob = sample_action(
-            states['policy'], params['policy'], next_feat, sub_rng2)
+            states['actor'], params['actor'], next_feat, sub_rng2)
         target_q1, target_q2 = states['critic'].apply_fn(
             {'params': target_critic_params}, next_feat, next_action)
         min_q = jnp.minimum(target_q1, target_q2)
         target_q = batch['reward'] + gamma * (1.0 - batch['done']) * (min_q - alpha * next_log_prob)
         
-        # 5. Critic loss
+        # 5. Critic loss with gradient clipping
         critic_loss = jnp.mean((q1 - target_q) ** 2 + (q2 - target_q) ** 2)
+        critic_loss = jnp.clip(critic_loss, 0.0, 1000.0)  # Clip to prevent explosion
 
-        # 6. Actor loss
+        # 6. Actor loss with gradient clipping
         q1_pi, _ = states['critic'].apply_fn({'params': params['critic']}, feat, next_action)
         actor_loss = jnp.mean(alpha * log_prob - q1_pi)
+        actor_loss = jnp.clip(actor_loss, -1000.0, 1000.0)  # Clip to prevent explosion
 
         total_loss = critic_loss + actor_loss
         return total_loss, {
@@ -132,9 +134,14 @@ def train_step(rng: jax.random.PRNGKey,
     grad_fn = jax.value_and_grad(loss_fn, has_aux=True)
     (loss, logs), grads = grad_fn({
         'encoder': states['encoder'].params,
-        'policy': states['policy'].params,
+        'actor': states['actor'].params,
         'critic': states['critic'].params
     })
+
+    # Gradient clipping
+    grads = jax.tree_util.tree_map(
+        lambda g: jnp.clip(g, -1.0, 1.0), grads
+    )
 
     new_states = {k: states[k].apply_gradients(grads=grads[k]) for k in states}
 

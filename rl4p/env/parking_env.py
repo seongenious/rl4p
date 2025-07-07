@@ -71,8 +71,15 @@ class ParkingEnv(gym.Env):
         C = 2  # Occupancy + vehicle 
         self.grid_size = (H, W)
         self.grid_resolution = self.config['observation']['grid_resolution']
-        self.observation_space = gym.spaces.Box(
-            low=-1.0, high=1.0, shape=(N, H, W, C), dtype=np.float32
+        self.observation_space = gym.spaces.Dict(
+            {
+                'occupancy_grid': gym.spaces.Box(
+                    low=-1.0, high=1.0, shape=(N, H, W, C), dtype=np.float32
+                ),
+                'state': gym.spaces.Box(
+                    low=-1.0, high=1.0, shape=(N, 5), dtype=np.float32
+                )
+            }
         )
         
         # Environment state
@@ -83,6 +90,7 @@ class ParkingEnv(gym.Env):
         self.occupancy_buffer: Optional[HistoryBuffer] = None
         self.state_buffer: Optional[HistoryBuffer] = None
         self.step_count: int = 0
+        self.path_length: float = 0.0
         
         # Renderer
         self.enable_render = render
@@ -114,6 +122,7 @@ class ParkingEnv(gym.Env):
         self.occupancy_grid = None
         self.occupancy_buffer = HistoryBuffer(maxlen=self.config['observation']['history_length'])
         self.state_buffer = HistoryBuffer(maxlen=self.config['observation']['history_length'])
+        self.path_length = 0.0
                 
         # Clear trajectory if renderer exists
         if self.renderer is not None:
@@ -136,6 +145,9 @@ class ParkingEnv(gym.Env):
             
             # Create state
             state = State(x=x, y=y, yaw=yaw, v=v, dir=dir)
+            
+            # Compute path length for reward
+            self.path_length = self.expert.get_path_length(state, self.goal)
             
             # Get initial observation
             obs = self._get_observation(state)
@@ -163,6 +175,8 @@ class ParkingEnv(gym.Env):
         if self.state is None:
             raise ValueError("Environment not initialized. Call reset() first.")
         
+        self.step_count += 1
+        
         # Get expert trajectory
         rs_path = self.expert.get_rs_path(self.state, self.goal)
         
@@ -188,17 +202,12 @@ class ParkingEnv(gym.Env):
         obs = self._get_observation(next_state)
         
         # Check terminal condition
-        done = False
-        if self._check_goal_reached(next_state):
-            done = True
+        done = self._check_goal_reached(next_state)
+        truncated = self.step_count > self.config['env']['max_steps']
+        collision = check_collision(obs.occupancy_grid) 
                 
-        # Check collision or time limit
-        truncated = False
-        if check_collision(obs.occupancy_grid) or self.step_count >= self.config['env']['max_steps']:
-            truncated = True
-        
         # Compute reward
-        reward = self._compute_reward(next_state, action, done, truncated)
+        reward = self._compute_reward(next_state, action, done, truncated, collision)
         
         # Prepare info
         info = {
@@ -209,8 +218,7 @@ class ParkingEnv(gym.Env):
         
         # Update current state
         self.state = next_state
-        self.step_count += 1
-        
+                
         return obs, reward, done, truncated, info
     
     def render(self, obs: Observation, **kwargs):
@@ -241,11 +249,12 @@ class ParkingEnv(gym.Env):
         self.renderer.update_trajectory(self.state)
         
         # Parse kwargs
-        reward, done, truncated, rs_path = kwargs.values()
+        action, reward, done, truncated, rs_path = kwargs.values()
         
         # Render
         self.renderer.render(
             state=self.state,
+            action=action,
             obs=obs,
             step_count=self.step_count,
             reward=reward,
@@ -267,7 +276,7 @@ class ParkingEnv(gym.Env):
             self.renderer = None
             
     def _compute_reward(self, state: State, action: Action, 
-                         done: bool, truncated: bool) -> float:
+                         done: bool, truncated: bool, collision: bool) -> float:
         """Compute reward for current state and action.
         
         Args:
@@ -275,23 +284,30 @@ class ParkingEnv(gym.Env):
             action: Action taken.
             done: Whether episode done.
             truncated: Whether episode truncated.
+            collision: Whether episode collided with obstacles.
             
         Returns:
             Reward value.
         """
         # Compute Reeds-Shepp path
         path_length = self.expert.get_path_length(state, self.goal)
+        length_reduction = self.path_length - path_length
+        self.path_length = path_length
 
         # Path length penalty
-        reward = path_length * self.config['reward']['path_length']
+        reward = length_reduction * self.config['reward']['length_reduction']
 
         # Success bonus
         if done:
             reward += self.config['reward']['success']
 
-        # Truncated penalty
+        # Time limit penalty
         if truncated:
-            reward += self.config['reward']['truncated']
+            reward += self.config['reward']['timeout']
+            
+        # Collision penalty
+        if collision:
+            reward += self.config['reward']['collision']
         
         return reward
 
@@ -353,20 +369,20 @@ class ParkingEnv(gym.Env):
         ])  
         
         #TODO: Create empty occupancy grid first, later fill it with obstacles
-        obs_center = jnp.array([1.4, 3.0, 0])
-        obs_polygon = self._create_polygon(
-            center=obs_center,
-            cg_to_front=2.5,
-            cg_to_rear=2.5,
-            width=2.0
-        )
-        obs_grid = create_gaussian_buffered_mask(
-            polygons=obs_polygon,
-            sigma=self.config['observation']['sigma'],
-            buffer=self.config['observation']['buffer'],
-            resolution=self.config['observation']['grid_resolution'],
-            origin=origin
-        )
+        # obs_center = jnp.array([1.4, 3.0, 0])
+        # obs_polygon = self._create_polygon(
+        #     center=obs_center,
+        #     cg_to_front=2.5,
+        #     cg_to_rear=2.5,
+        #     width=2.0
+        # )
+        # obs_grid = create_gaussian_buffered_mask(
+        #     polygons=obs_polygon,
+        #     sigma=self.config['observation']['sigma'],
+        #     buffer=self.config['observation']['buffer'],
+        #     resolution=self.config['observation']['grid_resolution'],
+        #     origin=origin
+        # )
         
         # Create state grid
         ego_polygon = self._create_polygon(
@@ -382,6 +398,7 @@ class ParkingEnv(gym.Env):
             resolution=self.config['observation']['grid_resolution'],
             origin=origin
         )
+        obs_grid = jnp.zeros_like(ego_grid)
         
         # Update occupancy grid
         self.occupancy_grid = jnp.clip(

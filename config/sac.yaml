@@ -15,9 +15,10 @@ rs_path:
   turning_radius: 6.0 # [m] Reeds-Shepp path turning radius
 
 reward:
-  path_length: -0.1 # [-] Path length penalty
+  length_reduction: 1.0 # [-] Path reduction reward
   success: 100.0 # [-] Goal reach bonus
-  truncated: -100.0 # [-] Collision or time limit penalty
+  timeout: -50.0 # [-] Time limit penalty
+  collision: -100.0 # [-] Collision penalty
 
 observation:
   # Occupancy grid
@@ -29,7 +30,7 @@ observation:
 
 env:
   # Simulation environment
-  max_steps: 20 # [-]
+  max_steps: 200 # [-]
   dt: 0.1 # [s]
   # Random initial state
   max_initial_position: 5.0 # [m]
@@ -42,7 +43,7 @@ env:
 
 train:
   # Hyper parameters
-  learning_rate: 0.00003
+  learning_rate: 0.00001  # Reduced from 0.00003 for stability
   gamma: 0.99
   tau: 0.005
   alpha: 0.2
@@ -53,12 +54,15 @@ train:
   # update_every: 50
   # update_repeat: 10
   # log_interval: 10
-  num_episodes: 10
-  random_steps: 2
-  update_after: 1
-  update_every: 1
-  update_repeat: 3
-  log_interval: 1
+  num_episodes: 100
+  random_steps: 20
+  update_after: 10  
+  update_every: 5
+  update_repeat: 2
+  log_interval: 5
   # Checkpoint
   render: false
   dir: "./checkpoints"
+
+example:
+  num_episodes: 10

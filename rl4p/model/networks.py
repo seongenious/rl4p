@@ -18,7 +18,7 @@ class PolicyNetwork(nn.Module):
         """ x: (B, 256) """
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
-            x = nn.relu(x)
+            x = nn.gelu(x)  # Changed from ReLU to GELU
         
         mu = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
@@ -36,7 +36,7 @@ class QNetwork(nn.Module):
         x = jnp.concatenate([feat, action], axis=-1)  # (B, 256+2)
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
-            x = nn.relu(x)
+            x = nn.gelu(x)  # Changed from ReLU to GELU
         q = nn.Dense(1)(x)
         return q.squeeze(-1)  # (B,)
     

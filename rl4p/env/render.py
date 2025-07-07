@@ -94,7 +94,6 @@ class ParkingRenderer:
         self.front_overhang = front_overhang
         self.rear_overhang = rear_overhang
         self.vehicle_width = width
-        
     
     def world_to_screen(self, x: float, y: float) -> Tuple[int, int]:
         """Convert world coordinates to screen coordinates.
@@ -236,7 +235,7 @@ class ParkingRenderer:
         if len(points) > 1:
             pygame.draw.lines(self.screen, color, False, points, 1)
     
-    def draw_info(self, state: State, step_count: int, reward: float, 
+    def draw_info(self, state: State, action: Action, step_count: int, reward: float, 
                   done: bool, truncated: bool, rs_path: List[State]):
         """Draw simulation information.
         
@@ -249,7 +248,7 @@ class ParkingRenderer:
             rs_path: Reeds-Shepp path.
         """
         # Background for info panel
-        info_rect = pygame.Rect(10, 10, 300, 200)
+        info_rect = pygame.Rect(10, 10, 300, 220)
         pygame.draw.rect(self.screen, self.config.DARK_GRAY, info_rect)
         pygame.draw.rect(self.screen, self.config.WHITE, info_rect, 2)
         
@@ -269,18 +268,19 @@ class ParkingRenderer:
         dir_text = f"Direction: {state.dir}"
         dir_surface = self.font.render(dir_text, True, self.config.WHITE)
         self.screen.blit(dir_surface, (20, 95))
-
-        # Reeds-Shepp path
-        self.draw_trajectory(rs_path, self.config.PURPLE)
+        
+        action_text = f"Action: ({action[0]:.2f}, {action[1]:.2f})"
+        action_surface = self.font.render(action_text, True, self.config.WHITE)
+        self.screen.blit(action_surface, (20, 120))
         
         # Episode info
         step_text = f"Step: {step_count}"
         step_surface = self.font.render(step_text, True, self.config.WHITE)
-        self.screen.blit(step_surface, (20, 120))
+        self.screen.blit(step_surface, (20, 145))
         
         reward_text = f"Reward: {reward:.2f}"
         reward_surface = self.font.render(reward_text, True, self.config.WHITE)
-        self.screen.blit(reward_surface, (20, 145))
+        self.screen.blit(reward_surface, (20, 170))
         
         # Status
         if done:
@@ -294,7 +294,10 @@ class ParkingRenderer:
             status_color = self.config.WHITE
         
         status_surface = self.font.render(status_text, True, status_color)
-        self.screen.blit(status_surface, (20, 170))
+        self.screen.blit(status_surface, (20, 195))
+        
+        # Reeds-Shepp path
+        self.draw_trajectory(rs_path, self.config.PURPLE)
     
     def draw_occupancy_grid(self, occupancy_grid: jnp.ndarray):
         """Draw observation.
@@ -351,7 +354,7 @@ class ParkingRenderer:
         """Clear the trajectory."""
         self.trajectory = []
     
-    def render(self, state: State, obs: Observation, step_count: int, reward: float, 
+    def render(self, state: State, action: Action, obs: Observation, step_count: int, reward: float, 
                done: bool, truncated: bool, rs_path: List[State]):
         """Render the current state.
         
@@ -380,7 +383,7 @@ class ParkingRenderer:
         self.draw_vehicle(state)
         
         # Draw info panel
-        self.draw_info(state, step_count, reward, done, truncated, rs_path)
+        self.draw_info(state, action, step_count, reward, done, truncated, rs_path)
         
         # Update display
         pygame.display.flip()

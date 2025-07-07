@@ -13,7 +13,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from tqdm import tqdm
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 from env.parking_env import ParkingEnv
 from model.trainer import (
@@ -62,7 +62,7 @@ def main():
     # Logger configurations
     log_interval = config['train']['log_interval']
     log_dir = os.path.join("./runs", datetime.now().strftime("%Y%m%d-%H%M%S"))
-    # logger = SummaryWriter(log_dir)
+    logger = SummaryWriter(log_dir)
     
     # Other configurations
     ckpt_dir = config['train']['dir']
@@ -86,14 +86,14 @@ def main():
     # Training loop
     pbar = tqdm(range(num_episodes))
     for step in pbar: 
-        pbar.set_description(f"Episode {step}")
+        pbar.set_description(f"Episode {step + 1}")
 
         # Reset episode 
         obs, info = env.reset()
-        done = False
+        episode_reward = 0
                 
         # Run episode
-        while not done:
+        while True:
             rng, sub_rng = jax.random.split(rng)
             
             # 1. Encode feature
@@ -102,7 +102,7 @@ def main():
             
             # 2. Sample action
             action = env.action_space.sample() if step < random_steps else sample_action(
-                states['policy'], states['policy'].params, feat, sub_rng)[0]
+                states['actor'], states['actor'].params, feat, sub_rng)[0]
             if action.ndim == 2: 
                 action = action[0]
 
@@ -111,17 +111,22 @@ def main():
             
             # 4. Update replay buffer
             add_buffer(replay_buffer, obs, action, reward, done or truncated, next_obs)
+                        
+            # 5. Render environment
+            episode_reward += reward
+            kwargs = {
+                'action': action,
+                'reward': episode_reward,
+                'done': done,
+                'truncated': truncated,
+                'rs_path': info['rs_path'],
+            }
+            env.render(obs, **kwargs)
             obs = next_obs
             
-            # 5. Render environment
-            kwargs = {'reward': reward, 'done': done, 'truncated': truncated, 'rs_path': info['rs_path']}
-            env.render(obs, **kwargs)
-
-            desc = f"Episode {step} - Random action" \
-                if step < random_steps else f"Episode {step} - Trained action"
-            pbar.set_description(desc)
-            
             if done or truncated: 
+                logger.add_scalar("Episode/Reward", episode_reward, step)
+                logger.add_scalar("Episode/Success", int(done), step)
                 break
         
         # Network update
@@ -135,21 +140,24 @@ def main():
                 target_critic_params = soft_update(
                     target_critic_params, states['critic'].params, tau)
 
-                pbar.set_postfix(actor_loss=logs['actor_loss'], critic_loss=logs['critic_loss'])
-
             if step % log_interval == 0:
+                logger.add_scalar("Loss/Actor", float(logs['actor_loss']), step)
+                logger.add_scalar("Loss/Critic", float(logs['critic_loss']), step)
                 save_checkpoint(
                     step=step, 
-                    actor_state=states['policy'], 
-                    critic1_state=states['critic'], 
-                    critic2_state=states['critic'],  
+                    encoder_state=states['encoder'],
+                    actor_state=states['actor'], 
+                    critic_state=states['critic'], 
                     ckpt_dir=ckpt_dir
                 )
-
+                
+    logger.close()
+    
     elapsed = time.time() - start
     hours = int(elapsed // 3600)
     minutes = int((elapsed % 3600) // 60)
     seconds = int(elapsed % 60)
+    
     print(f"Training completed in {hours:02d}:{minutes:02d}:{seconds:02d}.")
 
 

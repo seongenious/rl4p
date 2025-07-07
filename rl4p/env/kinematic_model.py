@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from env.datatypes import State, Action
 from util.unit import mod2pi
 
-ZERO_SPEED = 0.03
+ZERO_SPEED = 0.01
 
 
 @jax.jit
@@ -20,7 +20,7 @@ def simulate(state: State, action: Action, dt: float, wheelbase: float) -> State
     Returns:
         A next State object (x, y, yaw, v, dir)
     """
-    v = state.v + state.dir * action.accel * dt
+    v = state.v + action.accel * dt
 
     dir_next = jnp.where(v < -ZERO_SPEED, -state.dir, state.dir)
     v_next = jnp.where(v < ZERO_SPEED, 0., v)
