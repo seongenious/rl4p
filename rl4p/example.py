@@ -33,7 +33,7 @@ def main() -> None:
       states = create_train_state(networks, params)
     
     # Setup environment 
-    env = ParkingEnv(config, render=True)
+    env = ParkingEnv(config, level=-1, render=True)
         
     # Run episodes
     for _ in tqdm(range(num_episodes), desc='Run episodes'):
@@ -56,7 +56,7 @@ def main() -> None:
         
         # Step
         obs, reward, done, truncated, info = env.step(action)
-        
+                
         # Render environment
         episode_reward += reward
         kwargs = {

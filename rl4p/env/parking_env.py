@@ -38,16 +38,18 @@ class ParkingEnv(gym.Env):
         - Based on distance to goal, heading alignment, and collision penalty
     """
     
-    def __init__(self, config: Dict[str, Any], render: bool = False):
+    def __init__(self, config: Dict[str, Any], level: int = -1, render: bool = False):
         """Initialize the parking environment.
         
         Args:
             config: Environment configuration. If None, uses default config.
+            level: Curriculum level.
             render: Whether to render the environment.
         """
         super().__init__()
         
         self.config = config
+        self.level = level
         
         # Vehicle dimensions
         self.wheelbase = config['vehicle_config']['wheelbase']
@@ -62,7 +64,7 @@ class ParkingEnv(gym.Env):
         
         # Define action and observation spaces
         self.action_space = gym.spaces.Box(
-            low=np.array([-1, -1]), high=np.array([1, 1]), dtype=np.float32
+            low=np.array([-1., -1.]), high=np.array([1., 1.]), dtype=np.float32
         )
         
         # Observation space: {occupancy grid (256*256)}
@@ -130,17 +132,21 @@ class ParkingEnv(gym.Env):
         
         # Generate random initial state without collision
         while True:
-            # Random state
-            val = self.config['env']['max_initial_position']
-            x = np.random.uniform(-val, val)
-            y = np.random.uniform(-val, val)
-            
-            val = deg2rad(self.config['env']['max_initial_heading'])
-            yaw = np.random.uniform(-val, val)
+            if self.level == -1:
+                yaw_max = deg2rad(self.config['env']['initial_heading'])
+                x_max = self.config['env']['initial_position']
+                y_max = x_max * np.sin(yaw_max)
+            else:
+                yaw_max = deg2rad(self.config['curriculum']['initial_heading'][self.level])
+                x_max = self.config['curriculum']['initial_position'][self.level]
+                y_max = x_max * np.sin(yaw_max)
+                
 
-            val = kph2mps(self.config['env']['max_initial_velocity'])
-            v = np.random.uniform(0, val)
-            
+            # Random state
+            x = np.random.uniform(-x_max, x_max)
+            y = np.random.uniform(-y_max, y_max)
+            yaw = np.random.uniform(-yaw_max, yaw_max)
+            v = 0
             dir = np.random.choice([-1, 1])
             
             # Create state
@@ -148,7 +154,7 @@ class ParkingEnv(gym.Env):
             
             # Compute path length for reward
             self.path_length = self.expert.get_path_length(state, self.goal)
-            
+                        
             # Get initial observation
             obs = self._get_observation(state)
 
@@ -179,6 +185,7 @@ class ParkingEnv(gym.Env):
         
         # Get expert trajectory
         rs_path = self.expert.get_rs_path(self.state, self.goal)
+        delta, accel = self.expert.get_control_input(self.state, rs_path)
         
         # Parse action
         max_steering_angle = deg2rad(self.config['vehicle_config']['max_steering_angle'])
@@ -337,22 +344,27 @@ class ParkingEnv(gym.Env):
         Returns:
             True if goal is reached.
         """
+        if self.level == -1:
+            distance_threshold = self.config['env']['distance_threshold']
+            heading_threshold = deg2rad(self.config['env']['heading_threshold'])
+            zero_speed = self.config['env']['zero_speed']
+        else:
+            distance_threshold = self.config['curriculum']['distance_threshold'][self.level]
+            heading_threshold = deg2rad(self.config['curriculum']['heading_threshold'][self.level])
+            zero_speed = self.config['curriculum']['zero_speed'][self.level]
+
         # Check position
-        distance_threshold = self.config['env']['distance_threshold']
         distance_error = np.sqrt(state.x**2 + state.y**2)
         if distance_error > distance_threshold:
             return False
         
         # Check heading
-        heading_threshold = self.config['env']['heading_threshold']
         heading_error = np.abs(mod2pi(state.yaw))
         if heading_error > heading_threshold:
             return False
         
         # Check velocity
-        velocity_threshold = self.config['env']['velocity_threshold']
-        velocity_error = np.abs(state.v)
-        if velocity_error > velocity_threshold:
+        if np.abs(state.v) > zero_speed:
             return False
         
         return True
