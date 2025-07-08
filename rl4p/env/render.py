@@ -236,7 +236,7 @@ class ParkingRenderer:
             pygame.draw.lines(self.screen, color, False, points, 1)
     
     def draw_info(self, state: State, action: Action, step_count: int, reward: float, 
-                  done: bool, truncated: bool, rs_path: List[State]):
+                  done: bool, truncated: bool):
         """Draw simulation information.
         
         Args:
@@ -245,7 +245,6 @@ class ParkingRenderer:
             reward: Current reward.
             done: Whether episode is done.
             truncated: Whether episode was truncated.
-            rs_path: Reeds-Shepp path.
         """
         # Background for info panel
         info_rect = pygame.Rect(10, 10, 300, 220)
@@ -295,9 +294,6 @@ class ParkingRenderer:
         
         status_surface = self.font.render(status_text, True, status_color)
         self.screen.blit(status_surface, (20, 195))
-        
-        # Reeds-Shepp path
-        self.draw_trajectory(rs_path, self.config.PURPLE)
     
     def draw_occupancy_grid(self, occupancy_grid: jnp.ndarray):
         """Draw observation.
@@ -355,7 +351,7 @@ class ParkingRenderer:
         self.trajectory = []
     
     def render(self, state: State, action: Action, obs: Observation, step_count: int, reward: float, 
-               done: bool, truncated: bool, rs_path: List[State]):
+               done: bool, truncated: bool, initial_path: List[State], current_path: List[State]):
         """Render the current state.
         
         Args:
@@ -365,7 +361,8 @@ class ParkingRenderer:
             reward: Current reward.
             done: Whether episode is done.
             truncated: Whether episode was truncated.
-            rs_path: Reeds-Shepp path.
+            initial_path: Initial Reeds-Shepp path.
+            current_path: Current Reeds-Shepp path.
         """
         # Clear screen
         self.screen.fill(self.config.DARK_BG)
@@ -375,15 +372,17 @@ class ParkingRenderer:
         
         # Draw parking slot
         self.draw_parking_slot(done)
-        
-        # Draw trajectory
-        self.draw_trajectory(self.trajectory)
+
+        # Draw info panel
+        self.draw_info(state, action, step_count, reward, done, truncated)
         
         # Draw vehicle
         self.draw_vehicle(state)
-        
-        # Draw info panel
-        self.draw_info(state, action, step_count, reward, done, truncated, rs_path)
+
+        # Draw trajectory
+        self.draw_trajectory(initial_path, self.config.PURPLE)
+        self.draw_trajectory(current_path, self.config.ORANGE)
+        self.draw_trajectory(self.trajectory)
         
         # Update display
         pygame.display.flip()

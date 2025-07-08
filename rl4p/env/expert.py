@@ -5,7 +5,11 @@ import jax.numpy as jnp
 import reeds_shepp as rs
 
 from env.datatypes import State
-from util.unit import mod2pi
+from util.unit import mod2pi, kph2mps, rad2deg, deg2rad
+
+MAX_SPEED = kph2mps(10)
+STEP_TIME = 0.1
+
 
 class Expert:
     def __init__(self, config: Dict):
@@ -14,9 +18,30 @@ class Expert:
         self.min_turning_radius = config['rs_path']['turning_radius']
         self.step_size = config['rs_path']['resolution']
         self.max_speed = config['vehicle_config']['max_speed']
-        self.max_steering_angle = config['vehicle_config']['max_steering_angle']
+        self.max_steering_angle = deg2rad(config['vehicle_config']['max_steering_angle'])
         self.max_accel = config['vehicle_config']['max_accel']
         self.wheelbase = config['vehicle_config']['wheelbase']
+    
+    def set_reference_path(self, path: List[State]):
+        """Set reference path. Split path into segments by direction change.
+        
+        Args:
+            path: List[State]
+        """
+        self.segments = []
+        self.segment_idx = 0
+        
+        path = jnp.array([(p.x, p.y, p.yaw, p.v, p.dir) for p in path])
+
+        direction = path[:, 4]
+        change_points = jnp.where(direction[1:] != direction[:-1])[0]
+        split_indices = jnp.concatenate([jnp.array([-1]), change_points, jnp.array([-1])])
+
+        for i in range(len(split_indices) - 1):
+            start = split_indices[i] + 1
+            end = split_indices[i + 1]
+            segment = path[start:end]
+            self.segments.append(segment)
 
     def get_path_length(self, start: State, goal: State) -> float:
         """Get Reeds-Shepp path length.
@@ -51,24 +76,70 @@ class Expert:
         q0 = (start.x, start.y, start.yaw)
         q1 = (goal.x, goal.y, goal.yaw)
         points = rs.path_sample(q0, q1, radius, self.step_size)
-        path = [State(x=p[0], y=p[1], yaw=p[2], v=0, dir=1) for p in points]
+        points = jnp.array(points)
+
+        # Recalculate direction at each point
+        position = points[:, :2]
+        dxdy = position[1:] - position[:-1]
+        heading = points[:, 2]
+        tangent = jnp.stack([jnp.cos(heading[:-1]), jnp.sin(heading[:-1])], axis=-1)
+        
+        dot = jnp.sum(dxdy * tangent, axis=-1)
+        directions = jnp.sign(dot)  # shape: (N-1,), values: +1 or -1
+        directions = jnp.concatenate([directions, directions[-1:]], axis=-1)
+        
+        path = [
+            State(x=p[0], y=p[1], yaw=p[2], v=0, dir=dir) for p, dir in zip(points, directions)
+        ]
 
         return path
 
-    def get_control_input(self, state: State, path: List[State]) -> Tuple[float, float]:
+    def get_control_input(self, state: State) -> Tuple[float, float]:
         """Get control input.
         
         Args:
             state: State
-            path: List[State]
 
         Returns:
             control input: (delta, accel)
         """
-        # Convert path to jnp.ndarray
-        path = jnp.array([(p.x, p.y, p.yaw, p.v, p.dir) for p in path])
+        path = self.segments[self.segment_idx]
 
-        return compute_control_input(state, path, self.wheelbase)
+        # Find nearest point in the segment
+        xy = jnp.array([state.x, state.y])
+        dists = jnp.linalg.norm(xy - path[:, :2], axis=-1)
+        idx = jnp.argmin(dists)
+        curr_dir = path[0, 4]
+
+        if self.segment_idx < len(self.segments) - 1:
+            next_path = self.segments[self.segment_idx + 1]
+            next_dir = next_path[0, 4]
+
+            # Advance to next segment 
+            if state.dir == next_dir and idx == len(path) - 1:
+                self.segment_idx += 1
+
+        # Compute remaining length
+        seg_dist = jnp.linalg.norm(path[:, :2][1:] - path[:, :2][:-1], axis=-1)
+        remaining_length = jnp.sum(seg_dist[idx:])
+        dist_ego_to_start = jnp.linalg.norm(xy - path[:, :2][0])
+        dist_ego_to_end = jnp.linalg.norm(xy - path[:, :2][-1])
+        dist_start_to_end = jnp.linalg.norm(path[:, :2][0] - path[:, :2][-1])
+        s = jnp.where(dist_ego_to_start > dist_start_to_end, -dist_ego_to_end, remaining_length)
+        
+        # Compute steering angle using stanley method
+        delta = compute_steering_angle(state, path)
+
+        # Compute acceleration using IDM
+        if state.dir != curr_dir:
+            accel = -0.5
+        else:
+            accel = compute_acceleration(state, s)
+
+        # Normalize to [-1, 1]
+        delta = jnp.clip(delta / self.max_steering_angle, -1.0, 1.0)
+        accel = jnp.clip(accel / self.max_accel, -1.0, 1.0)
+        return delta, accel
 
 @jax.jit
 def turning_radius_from_dynamics(v: float, 
@@ -86,28 +157,22 @@ def turning_radius_from_dynamics(v: float,
     """
     return jnp.maximum(v**2 / max_lateral_accel, min_turning_radius)
 
-@jax.jit
 def find_direction_switch_idx(path: jnp.ndarray) -> int:
     """
     Estimate driving direction (+1: forward, -1: backward) at each point
     based on heading and displacement vector.
     
     Args:
-        path: jnp.ndarray of (x, y, yaw, s, kappa).
+        path: jnp.ndarray of (x, y, yaw, v, dir).
     
     Returns:
         direction switch index: int.
     """
-    pos = path[:, :2]  # (x, y)
-    yaw = path[:, 2]   # yaw
-    delta = pos[1:] - pos[:-1]  # displacement vector
-    heading = jnp.stack([jnp.cos(yaw[:-1]), jnp.sin(yaw[:-1])], axis=-1)
-
-    dot = jnp.sum(delta * heading, axis=-1)
-    direction = jnp.sign(dot)  # shape: (N-1,), values: +1 or -1
+    direction = path[:, 4]
     change = jnp.where(direction[1:] != direction[:-1])[0]
+    idx = change[0] if len(change) > 0 else -1
     
-    return int(change[0] - 1) if len(change) > 0 else -1
+    return idx
 
 @jax.jit
 def project_point_to_segment(p: jnp.ndarray, 
@@ -161,86 +226,69 @@ def compute_error_to_path(
 
     def project_segment(p0_i, p1_i, yaw0_i, yaw1_i):
         """Compute distance and heading error at projected point."""
-        dist, _, t = project_point_to_segment(pose[:2], p0_i, p1_i)
+        dist, proj, t = project_point_to_segment(pose[:2], p0_i, p1_i)
+        tangent = p1_i - p0_i
+        tangent = tangent / (jnp.linalg.norm(tangent) + 1e-6)
+
         delta = jnp.arctan2(jnp.sin(yaw1_i - yaw0_i), jnp.cos(yaw1_i - yaw0_i))
         yaw_interp = yaw0_i + t * delta
-        return dist, yaw_interp
+
+        vec = pose[:2] - proj
+        cross = tangent[0] * vec[1] - tangent[1] * vec[0]
+        signed_dist = jnp.sign(cross) * jnp.linalg.norm(vec)
+
+        return signed_dist, yaw_interp
 
     dists, yaws = jax.vmap(project_segment)(p0, p1, yaw0, yaw1)
     idx = jnp.argmin(dists)
 
-    return dists[idx], mod2pi(pose[2] - yaws[idx])
+    lateral_error = dists[idx] 
+    heading_error = jnp.arctan2(jnp.sin(yaws[idx] - pose[2]), jnp.cos(yaws[idx] - pose[2]))
+
+    return lateral_error, heading_error
 
 @jax.jit
-def compute_control_input(state: State, 
-                          path: jnp.ndarray, 
-                          wheelbase: float) -> Tuple[float, float]:
-    """Compute control input.
+def compute_steering_angle(state: State, 
+                           path: jnp.ndarray, 
+                           k: float = 0.5,
+                           soft_eps: float = 1e-6) -> float:
+    """Compute steering angle using stanley method.
     
     Args:
         state: State
         path: jnp.ndarray
-        wheelbase: float
+        k: float
+        soft_eps: float
     
     Returns:
-        control input: (delta, accel)
+        steering angle: float
     """
     # Compute error to the path
     pose = jnp.array([state.x, state.y, state.yaw])
     e_lat, e_yaw = compute_error_to_path(pose, path)
-
-    # Compute steering angle by LQR
-    v = jnp.maximum(state.v, 1.)
-    dt = 0.1
-    A = jnp.array([[1., v*dt], [0., 1.]])
-    B = jnp.array([[0.], [v*dt / wheelbase]])
-
-    Q = jnp.array([[1., 0.], [0., 2.]])
-    R = jnp.array([[0.1]])
     
-    K = discrete_lqr(A, B, Q, R)
-    x = jnp.array([e_lat, e_yaw])
-    delta = -K @ x
-    
-    accel = 0
-
-    return delta, accel
-    
-@jax.jit
-def solve_discrete_are(A: jnp.ndarray, 
-                       B: jnp.ndarray, 
-                       Q: jnp.ndarray, 
-                       R: jnp.ndarray, 
-                       max_iters: int = 100, 
-                       tol: float = 1e-6) -> jnp.ndarray:
-    """Iterative solution to discrete-time Algebraic Riccati Equation (DARE)."""
-    def body_fn(P):
-        BT_P = B.T @ P
-        inv_term = jnp.linalg.inv(R + B.T @ P @ B)
-        temp = BT_P.T @ (inv_term @ BT_P)
-        P_new = Q + A.T @ (P - temp) @ A
-        return P_new
-
-    def cond_fn(val):
-        i, P, P_prev = val
-        diff = jnp.max(jnp.abs(P - P_prev))
-        return (i < max_iters) & (diff > tol)
-
-    def loop_fn(val):
-        i, P, P_prev = val
-        P_new = body_fn(P)
-        return i + 1, P_new, P
-
-    # Initial value: P = Q
-    i, P_final, _ = jax.lax.while_loop(cond_fn, loop_fn, (0, Q, Q))
-    return P_final
+    # Stanley formula
+    e_yaw = mod2pi(jnp.where(state.dir == 1, e_yaw, e_yaw - jnp.pi))
+    v = jnp.where(state.dir == 1, state.v + soft_eps, -state.v - soft_eps)
+    delta = e_yaw + jnp.arctan2(k * (e_lat), v)
+    return delta
 
 @jax.jit
-def discrete_lqr(A: jnp.ndarray, 
-                 B: jnp.ndarray, 
-                 Q: jnp.ndarray, 
-                 R: jnp.ndarray) -> jnp.ndarray:
-    """Computes discrete-time LQR gain matrix K"""
-    P = solve_discrete_are(A, B, Q, R)
-    K = jnp.linalg.inv(R + B.T @ P @ B) @ (B.T @ P @ A)
-    return K
+def compute_acceleration(state: State, s: float) -> float:
+    """Compute acceleration with dynamic idx, fully JAX-compatible."""
+    a = 1.0  # max acceleration
+    b = 1.0  # comfortable braking deceleration
+    s0 = 0.0  # bumper-to-bumper distance at t=0
+    t_gap = 0.0  # time gap
+    v0 = MAX_SPEED
+    v = jnp.maximum(state.v, 0.1)  # current speed
+    dv = v0 - v  # speed difference to the front vehicle
+    delta = 4.0  # max acceleration exponent
+    s = jnp.maximum(s, 1e-3)
+
+    # Compute acceleration by IDM
+    s_star = s0 + jnp.maximum(0., v * t_gap + v * dv / (2.0 * jnp.sqrt(a * b)))
+    accel = a * (1.0 - (v / v0)**delta - (s_star / s)**2.0)
+
+    return accel
+

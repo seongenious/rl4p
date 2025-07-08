@@ -161,6 +161,8 @@ class ParkingEnv(gym.Env):
             # Check if initial state is valid (no collision)
             if not check_collision(obs.occupancy_grid):
                 self.state = state
+                self.initial_path = self.expert.get_rs_path(self.state, self.goal)
+                self.expert.set_reference_path(self.initial_path)
                 break
                 
         info = {
@@ -183,9 +185,11 @@ class ParkingEnv(gym.Env):
         
         self.step_count += 1
         
-        # Get expert trajectory
+        # Get expert trajectory and control input
+        delta, accel = self.expert.get_control_input(self.state)
+        action[0] = delta
+        action[1] = accel
         rs_path = self.expert.get_rs_path(self.state, self.goal)
-        delta, accel = self.expert.get_control_input(self.state, rs_path)
         
         # Parse action
         max_steering_angle = deg2rad(self.config['vehicle_config']['max_steering_angle'])
@@ -196,6 +200,7 @@ class ParkingEnv(gym.Env):
         
         # Create action object
         action = Action(delta=steering_angle, accel=acceleration)
+        # print(f'delta: {rad2deg(steering_angle)}, accel: {acceleration}')
         
         # Simulate next state
         next_state = simulate(
@@ -219,7 +224,8 @@ class ParkingEnv(gym.Env):
         # Prepare info
         info = {
             'vehicle_state': next_state,
-            'rs_path': rs_path,
+            'initial_path': self.initial_path,
+            'current_path': rs_path,
             'step_count': self.step_count,
         }
         
@@ -256,7 +262,7 @@ class ParkingEnv(gym.Env):
         self.renderer.update_trajectory(self.state)
         
         # Parse kwargs
-        action, reward, done, truncated, rs_path = kwargs.values()
+        action, reward, done, truncated, initial_path, current_path = kwargs.values()
         
         # Render
         self.renderer.render(
@@ -267,7 +273,8 @@ class ParkingEnv(gym.Env):
             reward=reward,
             done=done,
             truncated=truncated,
-            rs_path=rs_path,
+            initial_path=initial_path,
+            current_path=current_path,
         )
         
         # Handle events

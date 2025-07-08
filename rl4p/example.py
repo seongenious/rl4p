@@ -64,7 +64,8 @@ def main() -> None:
           'reward': episode_reward,
           'done': done,
           'truncated': truncated,
-          'rs_path': info['rs_path'],
+          'initial_path': info['initial_path'],
+          'current_path': info['current_path'],
         }
         env.render(obs, **kwargs)
                       
