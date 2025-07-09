@@ -153,39 +153,25 @@ class ParkingRenderer:
         else:
             pygame.draw.polygon(self.screen, color, rotated_corners, thickness)
     
-    def draw_vehicle(self, state: State, color: Optional[Tuple[int, int, int]] = None):
+    def draw_vehicle(self, state: State):
         """Draw vehicle as a polygon.
         
         Args:
             state: Vehicle state.
-            color: Vehicle color. If None, uses default gray.
         """
-        if color is None:
-            color = self.config.GRAY
-        
-        # Draw vehicle body
-        self.draw_polygon(
-            (state.x, state.y, state.yaw),
-            self.wheelbase + self.front_overhang,
-            self.rear_overhang,
-            self.vehicle_width,
-            color,
-            0  # Filled polygon
-        )
-        
         # Draw vehicle outline
         self.draw_polygon(
             (state.x, state.y, state.yaw),
             self.wheelbase + self.front_overhang,
             self.rear_overhang,
             self.vehicle_width,
-            self.config.BLACK,
+            self.config.DARK_GRAY,
             2  # Outline
         )
         
         # Draw rear wheel center indicator
         rear_screen_x, rear_screen_y = self.world_to_screen(state.x, state.y)
-        pygame.draw.circle(self.screen, self.config.ORANGE, (rear_screen_x, rear_screen_y), 5)
+        pygame.draw.circle(self.screen, self.config.WHITE, (rear_screen_x, rear_screen_y), 5)
         pygame.draw.circle(self.screen, self.config.BLACK, (rear_screen_x, rear_screen_y), 5, 1)
     
     def draw_parking_slot(self, success: bool = False):
@@ -194,22 +180,19 @@ class ParkingRenderer:
         Args:
             success: Whether parking was successful.
         """
-        color = self.config.GREEN if success else self.config.WHITE
-        thickness = 2
-        
         self.draw_polygon(
             (0, 0, 0),  # Goal position in world coordinates
-            self.slot_cg_to_front,
-            self.slot_cg_to_rear,
-            self.slot_width,
-            color,
-            thickness
+            self.wheelbase + self.front_overhang,
+            self.rear_overhang,
+            self.vehicle_width,
+            self.config.GREEN if success else self.config.BLACK,
+            2
         )
         
         # Draw goal point
         goal_screen_x, goal_screen_y = self.world_to_screen(0, 0)
-        pygame.draw.circle(self.screen, self.config.RED, (goal_screen_x, goal_screen_y), 8)
-        pygame.draw.circle(self.screen, self.config.BLACK, (goal_screen_x, goal_screen_y), 8, 2)
+        pygame.draw.circle(self.screen, self.config.GREEN, (goal_screen_x, goal_screen_y), 5)
+        pygame.draw.circle(self.screen, self.config.BLACK, (goal_screen_x, goal_screen_y), 5, 1)
     
     def draw_trajectory(self, trajectory: List[State], color: Optional[Tuple[int, int, int]] = None):
         """Draw trajectory points and lines.
@@ -301,26 +284,23 @@ class ParkingRenderer:
         Args:
             occupancy_grid: Occupancy grid.
         """
-        grid = occupancy_grid[-1, ...]
-        if isinstance(grid, jnp.ndarray):
-            grid = np.array(grid)
+        # grid = occupancy_grid
+        if isinstance(occupancy_grid, jnp.ndarray):
+            grid = np.array(occupancy_grid)
         
-        H, W, C = grid.shape
+        W, H, C = grid.shape
         cell_size = int(self.grid_resolution * self.config.scale)
         
-        # Normalize and clip
-        # grid = np.clip(grid, 0.0, 1.0)
-        
-        red = (grid[..., 0] * 255).astype(np.uint8)
-        green = (grid[..., 1] * 255).astype(np.uint8)
-        # blue = (grid[..., 1] * 255).astype(np.uint8)
+        red = (grid[..., 2] * 255).astype(np.uint8)  # Obstacle
+        green = (grid[..., 1] * 255).astype(np.uint8)  # Goal
+        blue = (grid[..., 0] * 255).astype(np.uint8)  # Vehicle
         
         R = red 
         G = green
-        B = np.zeros_like(red)
-        A = np.clip(red + green, 0, 255).astype(np.uint8)
+        B = blue
+        A = np.clip(red + green + blue, 0, 255).astype(np.uint8)
         
-        rgba = np.stack([R, G, B, A], axis=-1)  # (H, W, 4)
+        rgba = np.stack([R, G, B, A], axis=-1)  # (W, H, 4)
         
         # Pygame expects (W, H, 4) in C-contiguous format
         surface = pygame.image.frombuffer(rgba.swapaxes(0, 1).copy(order='C'), (W, H), 'RGBA')
@@ -351,7 +331,7 @@ class ParkingRenderer:
         self.trajectory = []
     
     def render(self, state: State, action: Action, obs: Observation, step_count: int, reward: float, 
-               done: bool, truncated: bool, initial_path: List[State], current_path: List[State]):
+               done: bool, truncated: bool, rs_path: List[State]):
         """Render the current state.
         
         Args:
@@ -361,8 +341,7 @@ class ParkingRenderer:
             reward: Current reward.
             done: Whether episode is done.
             truncated: Whether episode was truncated.
-            initial_path: Initial Reeds-Shepp path.
-            current_path: Current Reeds-Shepp path.
+            rs_path: Reeds-Shepp path.
         """
         # Clear screen
         self.screen.fill(self.config.DARK_BG)
@@ -380,9 +359,8 @@ class ParkingRenderer:
         self.draw_vehicle(state)
 
         # Draw trajectory
-        self.draw_trajectory(initial_path, self.config.PURPLE)
-        self.draw_trajectory(current_path, self.config.ORANGE)
-        self.draw_trajectory(self.trajectory)
+        self.draw_trajectory(rs_path, self.config.PURPLE)
+        self.draw_trajectory(self.trajectory, self.config.BLUE)
         
         # Update display
         pygame.display.flip()

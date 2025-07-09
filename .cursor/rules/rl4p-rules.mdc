@@ -8,16 +8,18 @@ alwaysApply: true
 
 - 이 프로젝트의 이름인 RL4P는 자동주차를 위한 강화학습이라는 주제를 다룹니다.
 
-## 데이터셋
+## 환경
 
-- 모든 데이터 셋은 가상으로 생성합니다. 운전자 로그 및 SAC 를 위한 off policy 데이터들은 `/rl4p/envs` 내의 코드로 관리됩니다.
-- 생성된 데이터는 `/data/` 에 저장합니다.
+- Parking env 는 gym.Env 를 상속받아 kinematic model 을 적용한 환경입니다.
+- observation 은 occupancy grid 와 vehicle state 입니다.
+  - occupancy grid 의 dimension 은 (256, 256, 3) 으로 각 채널에는 obstacle, ego vehicle, goal 이 저장됩니다.
+  - vehicle state 는 (x, y, yaw, v, dir) 입니다.
+- action 은 steering angle 과 acceleration 입니다. 
 
 ## 모델
 
-- 전체적인 학습은 BC-SAC (Behavior Cloned Soft Actor Critic) 모델을 이용한 방법을 사용합니다.
+- 학습은 SAC (Soft Actor Critic) 모델을 이용한 방법을 사용합니다.
   - 차량의 control input = [delta, accel] 을 출력하여 rollout 을 통해 trajectory 를 생성합니다.
-  - 기본적인 컨셉은 [Paper](mdc:https:/arxiv.org/abs/2212.11419) 을 참고바랍니다.
 - 네트워크의 입력은 차량의 initial state (x, y, yaw, v) 와 goal state (x, y, yaw, v), occupancy grid map 이 있습니다.
   - Goal state 는 항상 (0, 0, 0, v) 입니다. 즉, Goal 을 Local coordinate 의 중심으로 하여 일반화합니다.
   - Goal state 의 속도는 추후 경유지에 대한 확장을 위해 항상 0은 아니지만, 현재 프로젝트에서는 0으로 설정합니다.
@@ -43,4 +45,3 @@ alwaysApply: true
 ** 현재 프로젝트 상태 **
 
 - BC-SAC 중 SAC 부분만을 학습하여 검증하는 파이프라인을 만들고 있습니다.
-- 중간중간 테스트 코드가 섞여 있고, 정리가 되지 않은 상태입니다.
