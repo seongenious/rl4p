@@ -46,7 +46,8 @@ def print_config(config: Dict[str, Any]):
 def save_checkpoint(step: int,
                     encoder_state: train_state.TrainState,
                     actor_state: train_state.TrainState,
-                    critic_state: train_state.TrainState,
+                    critic1_state: train_state.TrainState,
+                    critic2_state: train_state.TrainState,
                     ckpt_dir: str) -> None:
     """Save SAC training checkpoint.
     
@@ -54,7 +55,8 @@ def save_checkpoint(step: int,
         step: Current training step.
         encoder_state: Encoder network training state.
         actor_state: Actor network training state.
-        critic_state: Critic network training state.
+        critic1_state: Critic1 network training state.
+        critic2_state: Critic2 network training state.
         ckpt_dir: Directory to save checkpoint.
     """
     os.makedirs(ckpt_dir, exist_ok=True)
@@ -64,15 +66,18 @@ def save_checkpoint(step: int,
         # Serialize each state and write with size information
         encoder_bytes = serialization.to_bytes(encoder_state)
         actor_bytes = serialization.to_bytes(actor_state)
-        critic_bytes = serialization.to_bytes(critic_state)
+        critic1_bytes = serialization.to_bytes(critic1_state)
+        critic2_bytes = serialization.to_bytes(critic2_state)
         
         # Write size followed by data for each state
         f.write(len(encoder_bytes).to_bytes(8, 'big'))
         f.write(encoder_bytes)
         f.write(len(actor_bytes).to_bytes(8, 'big'))
         f.write(actor_bytes)
-        f.write(len(critic_bytes).to_bytes(8, 'big'))
-        f.write(critic_bytes)
+        f.write(len(critic1_bytes).to_bytes(8, 'big'))
+        f.write(critic1_bytes)
+        f.write(len(critic2_bytes).to_bytes(8, 'big'))
+        f.write(critic2_bytes)
 
 def load_checkpoint(ckpt_path: str) -> Optional[Dict[str, train_state.TrainState]]:
     """Load checkpoint from pkl file if available, else return None.
@@ -81,7 +86,7 @@ def load_checkpoint(ckpt_path: str) -> Optional[Dict[str, train_state.TrainState
         ckpt_path: Path to checkpoint.
         
     Returns:
-        Dictionary containing encoder, actor, critic TrainStates or None if not found.
+        Dictionary containing encoder, actor, critic1, critic2 TrainStates or None if not found.
     """
     if not os.path.exists(ckpt_path):
         print(f"Checkpoint not found at {ckpt_path}")
@@ -98,14 +103,19 @@ def load_checkpoint(ckpt_path: str) -> Optional[Dict[str, train_state.TrainState
             actor_bytes = f.read(actor_size)
             actor_state = serialization.from_bytes(train_state.TrainState, actor_bytes)
             
-            critic_size = int.from_bytes(f.read(8), 'big')
-            critic_bytes = f.read(critic_size)
-            critic_state = serialization.from_bytes(train_state.TrainState, critic_bytes)
+            critic1_size = int.from_bytes(f.read(8), 'big')
+            critic1_bytes = f.read(critic1_size)
+            critic1_state = serialization.from_bytes(train_state.TrainState, critic1_bytes)
+            
+            critic2_size = int.from_bytes(f.read(8), 'big')
+            critic2_bytes = f.read(critic2_size)
+            critic2_state = serialization.from_bytes(train_state.TrainState, critic2_bytes)
             
             return {
                 'encoder': encoder_state['params'],
                 'actor': actor_state['params'],
-                'critic': critic_state['params'],
+                'critic1': critic1_state['params'],
+                'critic2': critic2_state['params'],
             }
             
     except Exception as e:

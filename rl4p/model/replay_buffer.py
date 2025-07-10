@@ -6,8 +6,8 @@ import jax.numpy as jnp
 
 from env.datatypes import Observation
 
-BUFFER_SIZE = 1000
-BATCH_SIZE = 64
+BUFFER_SIZE = 5000
+BATCH_SIZE = 128
 
 @chex.dataclass
 class ReplayBuffer:
@@ -30,15 +30,15 @@ def create_buffer() -> ReplayBuffer:
     """    
     return ReplayBuffer(
         obs=Observation(
-            occupancy_grid=jnp.zeros((BUFFER_SIZE, 3, 256, 256, 2), dtype=jnp.int8),
-            state=jnp.zeros((BUFFER_SIZE, 3, 5)),
+            occupancy_grid=jnp.zeros((BUFFER_SIZE, 256, 256, 3)),
+            state=jnp.zeros((BUFFER_SIZE, 4)),
         ),
         action=jnp.zeros((BUFFER_SIZE, 2)),
         reward=jnp.zeros((BUFFER_SIZE,)),
         done=jnp.zeros((BUFFER_SIZE,)),
         next_obs=Observation(
-            occupancy_grid=jnp.zeros((BUFFER_SIZE, 3, 256, 256, 2), dtype=jnp.int8),
-            state=jnp.zeros((BUFFER_SIZE, 3, 5)),
+            occupancy_grid=jnp.zeros((BUFFER_SIZE, 256, 256, 3)),
+            state=jnp.zeros((BUFFER_SIZE, 4)),
         ),
         capacity=BUFFER_SIZE,
         size=0,

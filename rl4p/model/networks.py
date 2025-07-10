@@ -1,11 +1,11 @@
-from flax import linen as nn
+from typing import  Tuple, Optional, Dict
+
 import jax
 import jax.numpy as jnp
 import distrax
-from typing import  Tuple, Optional, Dict
-from flax.training import train_state
 
-from model.encoder import SacEncoder
+from flax import linen as nn
+from flax.training import train_state
 
 
 class PolicyNetwork(nn.Module):
@@ -15,15 +15,25 @@ class PolicyNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
-        """ x: (B, 256) """
-        for dim in self.hidden_dims:
-            x = nn.Dense(dim)(x)
-            x = nn.gelu(x)  # Changed from ReLU to GELU
-        
+        """ x: (B, 16, 16, 256) """
+        # Convolutional layers
+        x = nn.Conv(128, (3, 3), padding="SAME")(x)  # (B, 16, 16, 128)
+        x = nn.gelu(x)
+        x = nn.Conv(64, (3, 3), padding="SAME")(x)  # (B, 16, 16, 64)
+        x = nn.gelu(x)
+
+        # Global average pooling
+        x = jnp.mean(x, axis=(1, 2))  # (B, 64)
+
+        # Fully connected layers
+        for h in self.hidden_dims:
+            x = nn.Dense(h)(x)
+            x = nn.gelu(x)
+
         mu = nn.Dense(self.action_dim)(x)
         log_std = nn.Dense(self.action_dim)(x)
-        log_std = jnp.clip(log_std, -20.0, 2.0)
-    
+        log_std = jnp.clip(log_std, -5, 2)
+
         return mu, log_std
 
 class QNetwork(nn.Module):
@@ -32,22 +42,18 @@ class QNetwork(nn.Module):
 
     @nn.compact
     def __call__(self, feat: jnp.ndarray, action: jnp.ndarray) -> jnp.ndarray:
-        """ x: (B, 1, 256) """
-        x = jnp.concatenate([feat, action], axis=-1)  # (B, 256+2)
+        """ 
+        feat: (B, 16, 16, 256), action: (B, 2)
+        """
+        # Global average pooling
+        x = jnp.mean(feat, axis=(1, 2))  # (B, 256)
+        
+        x = jnp.concatenate([x, action], axis=-1)  # (B, 258)
         for dim in self.hidden_dims:
             x = nn.Dense(dim)(x)
-            x = nn.gelu(x)  # Changed from ReLU to GELU
+            x = nn.gelu(x)
         q = nn.Dense(1)(x)
         return q.squeeze(-1)  # (B,)
-    
-class TwinQNetwork(nn.Module):
-    hidden_dims: Tuple[int, ...] = (256, 256)
-
-    @nn.compact
-    def __call__(self, feat: jnp.ndarray, action: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
-        q1 = QNetwork(hidden_dims=self.hidden_dims)(feat, action)
-        q2 = QNetwork(hidden_dims=self.hidden_dims)(feat, action)
-        return q1, q2  # both shape: (B,)
 
 def sample_action(actor: train_state.TrainState, 
                   params: Dict, 

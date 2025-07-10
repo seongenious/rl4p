@@ -51,14 +51,6 @@ class ParkingEnv(gym.Env):
         self.config = config
         self.level = level
         
-        # Vehicle dimensions
-        self.wheelbase = config['vehicle_config']['wheelbase']
-        self.front_overhang = config['vehicle_config']['front_overhang']
-        self.rear_overhang = config['vehicle_config']['rear_overhang']
-        self.width = config['vehicle_config']['width']
-        self.cg_to_front = self.wheelbase + self.front_overhang
-        self.cg_to_rear = self.rear_overhang
-
         # Expert
         self.expert = Expert(config)
         
@@ -79,14 +71,14 @@ class ParkingEnv(gym.Env):
                     low=-1.0, high=1.0, shape=(W, H, C), dtype=np.float32
                 ),
                 'state': gym.spaces.Box(
-                    low=-1.0, high=1.0, shape=(5,), dtype=np.float32
+                    low=-1.0, high=1.0, shape=(4,), dtype=np.float32
                 ),
             }
         )
         
         # Environment state
         self.state: Optional[State] = None
-        self.goal = State(x=0., y=0., yaw=0., v=0., dir=1.)
+        self.goal = State(x=0., y=0., yaw=0., v=0.)
         self.step_count: int = 0
         self.path_length: float = 0.0
         
@@ -98,9 +90,8 @@ class ParkingEnv(gym.Env):
         if self.enable_render:
             self.renderer = ParkingRenderer()
             self.renderer.set_vehicle_parameters(
-                wheelbase=self.config['vehicle_config']['wheelbase'],
-                front_overhang=self.config['vehicle_config']['front_overhang'],
-                rear_overhang=self.config['vehicle_config']['rear_overhang'],
+                cg_to_front=self.config['vehicle_config']['cg_to_front'],
+                cg_to_rear=self.config['vehicle_config']['cg_to_rear'],
                 width=self.config['vehicle_config']['width']
             )
 
@@ -120,7 +111,7 @@ class ParkingEnv(gym.Env):
                 
         # Clear trajectory if renderer exists
         if self.renderer is not None:
-            self.renderer.clear_trajectory()
+            self.renderer.clear_history()
         
         # Generate random initial state without collision
         while True:
@@ -138,10 +129,9 @@ class ParkingEnv(gym.Env):
             y = np.random.uniform(-y_max, y_max)
             yaw = np.random.uniform(-yaw_max, yaw_max)
             v = 0
-            dir = np.random.choice([-1, 1])
             
             # Create state
-            state = State(x=x, y=y, yaw=yaw, v=v, dir=dir)
+            state = State(x=x, y=y, yaw=yaw, v=v)
             
             # Get initial observation
             obs = self._get_observation(state)
@@ -174,17 +164,13 @@ class ParkingEnv(gym.Env):
         self.step_count += 1
         
         # Simulation step
-        max_delta = deg2rad(self.config['vehicle_config']['max_steering_angle'])
-        max_accel = self.config['vehicle_config']['max_accel']
-
-        delta = action[0] * max_delta
-        accel = action[1] * max_accel
+        a_lon = action[0] * self.config['vehicle_config']['max_a_lon']
+        a_lat = action[1] * self.config['vehicle_config']['max_a_lat']
         
         next_state = simulate(
           state=self.state,
-          action=Action(delta=delta, accel=accel),
+          action=Action(a_lon=a_lon, a_lat=a_lat),
           dt=self.config['env']['dt'],
-          wheelbase=self.config['vehicle_config']['wheelbase']
         )
         
         # Get observation
@@ -197,7 +183,7 @@ class ParkingEnv(gym.Env):
         truncated = timeout or collision
 
         # Compute reward
-        reward = self._compute_reward(next_state, action, collision)
+        reward = self._compute_reward(next_state, action, truncated)
         
         # Prepare info
         info = {
@@ -227,16 +213,14 @@ class ParkingEnv(gym.Env):
         # Initialize renderer if not already done
         if self.renderer is None:
             self.renderer = ParkingRenderer()
-            
-            # Set vehicle parameters from config
-            wheelbase = self.config['vehicle_config']['wheelbase']
-            front_overhang = self.config['vehicle_config']['front_overhang']
-            rear_overhang = self.config['vehicle_config']['rear_overhang']
-            width = self.config['vehicle_config']['width']
-            self.renderer.set_vehicle_parameters(wheelbase, front_overhang, rear_overhang, width)
+            self.renderer.set_vehicle_parameters(
+                cg_to_front=self.config['vehicle_config']['cg_to_front'],
+                cg_to_rear=self.config['vehicle_config']['cg_to_rear'],
+                width=self.config['vehicle_config']['width']
+            )
         
-        # Update trajectory
-        self.renderer.update_trajectory(self.state)
+        # Update history
+        self.renderer.update_history(self.state)
         
         # Parse kwargs
         action, reward, done, truncated, rs_path = kwargs.values()
@@ -265,7 +249,7 @@ class ParkingEnv(gym.Env):
             self.renderer.close()
             self.renderer = None
             
-    def _compute_reward(self, state: State, action: Action, collision: bool) -> float:
+    def _compute_reward(self, state: State, action: Action, truncated: bool) -> float:
         """Compute reward for current state and action. 
         Reward is calculated as; 
         progress * (combination of soft penalties) - terminal penalty
@@ -275,7 +259,6 @@ class ParkingEnv(gym.Env):
             action: Action taken.
             done: Whether episode done.
             truncated: Whether episode truncated.
-            collision: Whether episode collided with obstacles.
             
         Returns:
             Reward value. [-1, 1]
@@ -285,10 +268,13 @@ class ParkingEnv(gym.Env):
         progress = jnp.clip(1 - (path_length / self.path_length), 0.0, 1.0)
 
         # Soft penalties
-        soft_penalty = 1.0
+        max_speed = self.config['vehicle_config']['max_speed']
+        over_speed_penalty = 1.0 - jnp.clip((state.v - max_speed) / max_speed, 0.0, 1.0)
+        soft_penalty = over_speed_penalty
 
         # Terminal penalties
-        terminal_penalty = 1.0 if collision else 0.0
+        out_of_bounds = path_length > 1.5 * self.path_length
+        terminal_penalty = 1.0 if truncated or out_of_bounds else 0.0
         
         reward = progress * soft_penalty - terminal_penalty
         return reward
@@ -305,10 +291,18 @@ class ParkingEnv(gym.Env):
         # Update occupancy grid and history buffer
         occupancy_grid = self._update_occupancy_grid(state)
         
+        # Normalize state
+        max_range = self.grid_size[0] * self.grid_resolution / 2
+        x_norm = state.x / max_range
+        y_norm = state.y / max_range
+        yaw_norm = mod2pi(state.yaw) / jnp.pi
+        v_norm = state.v / self.config['vehicle_config']['max_speed']
+        state_norm = jnp.array([x_norm, y_norm, yaw_norm, v_norm])
+        
         # Get stacked occupancy grid
         obs = Observation(
             occupancy_grid=occupancy_grid, 
-            state=state,
+            state=state_norm,
         )
         
         return obs
@@ -361,9 +355,9 @@ class ParkingEnv(gym.Env):
         # Create state grid
         ego_polygon = self._create_polygon(
             center=jnp.array([state.x, state.y, state.yaw]),
-            cg_to_front=self.cg_to_front,
-            cg_to_rear=self.cg_to_rear,
-            width=self.width
+            cg_to_front=self.config['vehicle_config']['cg_to_front'],
+            cg_to_rear=self.config['vehicle_config']['cg_to_rear'],
+            width=self.config['vehicle_config']['width']
         )
         ego_grid = create_gaussian_buffered_mask(
             polygons=ego_polygon, 
@@ -376,9 +370,9 @@ class ParkingEnv(gym.Env):
         # Create goal grid
         goal_polygon = self._create_polygon(
             center=jnp.array([self.goal.x, self.goal.y, self.goal.yaw]),
-            cg_to_front=self.cg_to_front,
-            cg_to_rear=self.cg_to_rear,
-            width=self.width
+            cg_to_front=self.config['vehicle_config']['cg_to_front'],
+            cg_to_rear=self.config['vehicle_config']['cg_to_rear'],
+            width=self.config['vehicle_config']['width']
         )
         goal_grid = create_gaussian_buffered_mask(
             polygons=goal_polygon,
@@ -395,7 +389,6 @@ class ParkingEnv(gym.Env):
         occupancy_grid = jnp.clip(
             jnp.stack([ego_grid, goal_grid, obs_grid], axis=-1), 0.0, 1.0)  # (W, H, 3)
         return occupancy_grid
-
         
     def _create_polygon(self, 
                         center: jnp.ndarray, 

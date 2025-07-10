@@ -11,17 +11,16 @@ class State:
     y: float    # [m]
     yaw: float  # [rad]
     v: float    # [m/s]
-    dir: int=1  # 1: forward, -1: reverse
 
 @chex.dataclass
 class Action:
-    delta: float  # [-1, 1] normalized
-    accel: float  # [-1, 1] normalized
+    a_lon: float  # [-1, 1] normalized
+    a_lat: float  # [-1, 1] normalized
 
 @chex.dataclass
 class Observation:
-    occupancy_grid: jnp.ndarray  # shape = (batch, N, H, W, C)
-    state: jnp.ndarray           # shape = (batch, 5)
+    occupancy_grid: jnp.ndarray  # shape = (batch, W, H, C)
+    state: jnp.ndarray           # shape = (batch, 4)
 
 class HistoryBuffer:
     def __init__(self, maxlen: int):
@@ -55,6 +54,6 @@ class HistoryBuffer:
         """Get stacked items from the buffer.
         
         Returns:
-            A stacked array of items. (T, 256, 256, C)
+            A stacked array of items. (item dim, maxlen)
         """
-        return jnp.stack(self.buffer, axis=0)
+        return jnp.stack(self.buffer, axis=-1)

@@ -8,11 +8,12 @@ This project implements a reinforcement learning system for autonomous parking u
 
 ## Todo
 
-[] Multi-head policy network (steering angle, accel)
+[x] ~~Multi-head policy network (steering angle, accel)~~
 [v] Change observation
-[] Auxiliary task for Gear change
+[x] ~~Auxiliary task for Gear change~~
 [v] Reward normalization [-1, 1]
   - Progress = 1 - current RS path length / initial RS path length
   - Kinematic condition = [0, 1]
   - Off road = -1 if progress < 0
-[] Add dropout and L2 normalization to critic network
+[v] Add ~~dropout~~ and L2 normalization to critic network
+[] Reward shaping (not tend to stop hold)

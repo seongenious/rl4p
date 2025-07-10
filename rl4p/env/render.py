@@ -60,39 +60,30 @@ class ParkingRenderer:
         self.clock = pygame.time.Clock()
         
         # Vehicle parameters (default values, can be overridden)
-        self.wheelbase = 2.7         # meters
-        self.front_overhang = 0.8    # meters
-        self.rear_overhang = 1.0     # meters
+        self.cg_to_front = 3.5         # meters
+        self.cg_to_rear = 1.0     # meters
         self.vehicle_width = 1.8     # meters
                 
-        # Parking slot parameters
-        self.slot_cg_to_front = 3.8  # meters
-        self.slot_cg_to_rear = 1.2   # meters
-        self.slot_width = 2.4        # meters
-        
         # Observation parameters
         self.grid_size = (256, 256)
         self.grid_resolution = 0.2
         
         # Trajectory history
-        self.trajectory: List[State] = []
+        self.history: List[State] = []
         
         # Font for text rendering
         self.font = pygame.font.Font(None, 24)
     
-    def set_vehicle_parameters(self, wheelbase: float, 
-            front_overhang: float, rear_overhang: float, width: float):
+    def set_vehicle_parameters(self, cg_to_front: float, cg_to_rear: float, width: float):
         """Set vehicle parameters for rendering.
         
         Args:
-            wheelbase: Vehicle wheelbase in meters.
-            front_overhang: Distance from center of gravity to front of vehicle in meters.
-            rear_overhang: Distance from center of gravity to rear of vehicle in meters.
+            cg_to_front: Distance from center of gravity to front of vehicle in meters.
+            cg_to_rear: Distance from center of gravity to rear of vehicle in meters.
             width: Vehicle width in meters.
         """
-        self.wheelbase = wheelbase
-        self.front_overhang = front_overhang
-        self.rear_overhang = rear_overhang
+        self.cg_to_front = cg_to_front
+        self.cg_to_rear = cg_to_rear
         self.vehicle_width = width
     
     def world_to_screen(self, x: float, y: float) -> Tuple[int, int]:
@@ -162,8 +153,8 @@ class ParkingRenderer:
         # Draw vehicle outline
         self.draw_polygon(
             (state.x, state.y, state.yaw),
-            self.wheelbase + self.front_overhang,
-            self.rear_overhang,
+            self.cg_to_front,
+            self.cg_to_rear,
             self.vehicle_width,
             self.config.DARK_GRAY,
             2  # Outline
@@ -182,8 +173,8 @@ class ParkingRenderer:
         """
         self.draw_polygon(
             (0, 0, 0),  # Goal position in world coordinates
-            self.wheelbase + self.front_overhang,
-            self.rear_overhang,
+            self.cg_to_front,
+            self.cg_to_rear,
             self.vehicle_width,
             self.config.GREEN if success else self.config.BLACK,
             2
@@ -194,22 +185,46 @@ class ParkingRenderer:
         pygame.draw.circle(self.screen, self.config.GREEN, (goal_screen_x, goal_screen_y), 5)
         pygame.draw.circle(self.screen, self.config.BLACK, (goal_screen_x, goal_screen_y), 5, 1)
     
-    def draw_trajectory(self, trajectory: List[State], color: Optional[Tuple[int, int, int]] = None):
+    def draw_trajectory(self, trajectory: np.ndarray, color: Optional[Tuple[int, int, int]] = None):
         """Draw trajectory points and lines.
         
         Args:
-            trajectory: List of state objects.
+            trajectory: (N, 2) - trajectory (x, y, yaw, dir)
             color: Trajectory color. If None, uses default blue.
         """
         if color is None:
-            color = self.config.BLUE
+            color = self.config.PURPLE
         
-        if len(trajectory) < 2:
+        if trajectory.shape[0] < 2:
             return
         
         # Draw trajectory points and lines
         points = []
-        for state in trajectory:
+        for x, y, _, _ in trajectory:
+            screen_x, screen_y = self.world_to_screen(x, y)
+            points.append((screen_x, screen_y))
+            pygame.draw.circle(self.screen, color, (screen_x, screen_y), 2)
+        
+        # Draw lines connecting points
+        if len(points) > 1:
+            pygame.draw.lines(self.screen, color, False, points, 1)
+            
+    def draw_history(self, history: List[State], color: Optional[Tuple[int, int, int]] = None):
+        """Draw history points and lines.
+        
+        Args:
+            history: List of state objects.
+            color: History color. If None, uses default blue.
+        """
+        if color is None:
+            color = self.config.BLUE
+        
+        if len(history) < 2:
+            return
+        
+        # Draw history points and lines
+        points = []
+        for state in history:
             x, y = self.world_to_screen(state.x, state.y)
             points.append((x, y))
             pygame.draw.circle(self.screen, color, (x, y), 2)
@@ -235,7 +250,7 @@ class ParkingRenderer:
         pygame.draw.rect(self.screen, self.config.WHITE, info_rect, 2)
         
         # Vehicle state
-        state_text = f"Position: ({state.x:.2f}, {state.y:.2f})"
+        state_text = f"Position: x={state.x:.2f}, y={state.y:.2f}"
         state_surface = self.font.render(state_text, True, self.config.WHITE)
         self.screen.blit(state_surface, (20, 20))
         
@@ -246,23 +261,19 @@ class ParkingRenderer:
         vel_text = f"Velocity: {state.v:.2f} m/s"
         vel_surface = self.font.render(vel_text, True, self.config.WHITE)
         self.screen.blit(vel_surface, (20, 70))
-        
-        dir_text = f"Direction: {state.dir}"
-        dir_surface = self.font.render(dir_text, True, self.config.WHITE)
-        self.screen.blit(dir_surface, (20, 95))
-        
-        action_text = f"Action: ({action[0]:.2f}, {action[1]:.2f})"
+                
+        action_text = f"Action: a_lon={action[0]:.2f}, a_lat={action[1]:.2f}"
         action_surface = self.font.render(action_text, True, self.config.WHITE)
-        self.screen.blit(action_surface, (20, 120))
+        self.screen.blit(action_surface, (20, 95))
         
         # Episode info
         step_text = f"Step: {step_count}"
         step_surface = self.font.render(step_text, True, self.config.WHITE)
-        self.screen.blit(step_surface, (20, 145))
+        self.screen.blit(step_surface, (20, 120))
         
         reward_text = f"Reward: {reward:.2f}"
         reward_surface = self.font.render(reward_text, True, self.config.WHITE)
-        self.screen.blit(reward_surface, (20, 170))
+        self.screen.blit(reward_surface, (20, 145))
         
         # Status
         if done:
@@ -276,7 +287,7 @@ class ParkingRenderer:
             status_color = self.config.WHITE
         
         status_surface = self.font.render(status_text, True, status_color)
-        self.screen.blit(status_surface, (20, 195))
+        self.screen.blit(status_surface, (20, 170))
     
     def draw_occupancy_grid(self, occupancy_grid: jnp.ndarray):
         """Draw observation.
@@ -314,24 +325,24 @@ class ParkingRenderer:
         screen_y -= surface.get_height() // 2
         self.screen.blit(surface, (screen_x, screen_y))
                 
-    def update_trajectory(self, state: State):
+    def update_history(self, state: State):
         """Update trajectory with new state.
         
         Args:
-            state: New state to add to trajectory.
+            state: New state to add to history.
         """
-        self.trajectory.append(state)
+        self.history.append(state)
         
-        # Limit trajectory length to prevent memory issues
-        if len(self.trajectory) > 1000:
-            self.trajectory = self.trajectory[-500:]
+        # Limit history length to prevent memory issues
+        if len(self.history) > 1000:
+            self.history = self.history[-500:]
     
-    def clear_trajectory(self):
-        """Clear the trajectory."""
-        self.trajectory = []
+    def clear_history(self):
+        """Clear the history."""
+        self.history = []
     
     def render(self, state: State, action: Action, obs: Observation, step_count: int, reward: float, 
-               done: bool, truncated: bool, rs_path: List[State]):
+               done: bool, truncated: bool, rs_path: jnp.ndarray):
         """Render the current state.
         
         Args:
@@ -359,8 +370,10 @@ class ParkingRenderer:
         self.draw_vehicle(state)
 
         # Draw trajectory
-        self.draw_trajectory(rs_path, self.config.PURPLE)
-        self.draw_trajectory(self.trajectory, self.config.BLUE)
+        self.draw_trajectory(np.array(rs_path), self.config.PURPLE)
+        
+        # Draw history
+        self.draw_history(self.history)
         
         # Update display
         pygame.display.flip()
