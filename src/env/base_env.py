@@ -3,26 +3,22 @@ import sys
 sys.path.append("../")
 sys.path.append(".")
 
-from typing import Dict, Any, Tuple, Optional, OrderedDict
+from typing import Dict, Any, Tuple, OrderedDict
 
 import numpy as np
 import gym
 from gym import spaces
 from shapely.geometry import Polygon 
-from shapely.affinity import affine_transform
 from heapdict import heapdict
 import pygame
 import matplotlib.pyplot as plt
-import cv2
 
-# from env.viewer import EnvViewer
-# from env.utils import mod2pi, world2local
-# from env.vehicle import Vehicle
+from reeds_shepp import reeds_shepp as rs
 from map import Map
 from viewer import EnvViewer
 from vehicle import Vehicle
 from image_processor import ImageProcessor
-from configs import EnvStatus, EnvConfig, VehicleConfig, ActionConfig, ObservationConfig, ColorConfig
+from configs import EnvStatus, EnvConfig
 
 
 class BaseEnv(gym.Env):
@@ -55,7 +51,7 @@ class BaseEnv(gym.Env):
         )
 
 
-    def define_spaces(self, action_config: ActionConfig, observation_config: ObservationConfig) -> None:
+    def define_spaces(self, action_config, observation_config) -> None:
         self.action_space = spaces.Box(
             np.array([action_config.steer[0], action_config.speed[0]]).astype(np.float32),
             np.array([action_config.steer[1], action_config.speed[1]]).astype(np.float32),
@@ -207,6 +203,8 @@ class BaseEnv(gym.Env):
 
 
     def compute_reward(self) -> OrderedDict:
+        # rs_path = rs.get_optimal_path(self.vehicle.state.pose, self.map.dest.pose)
+
         return OrderedDict({
             'time_cost': 0.0,
             'rs_dist_reward': 0.0,
