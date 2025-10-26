@@ -6,7 +6,7 @@ from shapely.geometry import LinearRing
 from shapely.geometry.base import BaseGeometry
 from typing import List
 
-from vehicle import VehicleState
+from env.vehicle import VehicleState
 from configs import EnvConfig, ObservationConfig, ColorConfig
 
 
@@ -91,7 +91,8 @@ class Map(object):
 
         self.obstacles = []
         self.n_obstacle = 0
-        self.filter_obstacles(obstacles)
+        if self.config.use_obstacle:
+            self.filter_obstacles(obstacles)
 
         if random() > 0.5:
             self.flip_dest_orientation()
@@ -99,7 +100,6 @@ class Map(object):
             self.flip_start_orientation()
 
         return self.start
-
     
     def filter_obstacles(self, obstacles: List[LinearRing]):
         all_obstacles = list(
@@ -119,7 +119,6 @@ class Map(object):
         self.obstacles = filtered_obstacles
         self.n_obstacle = len(self.obstacles)
     
-
     def get_boundary(self):
         obs_coords = []
         for obs in self.obstacles:
@@ -130,11 +129,9 @@ class Map(object):
         self.ymin = np.floor(min(np.min(obs_coords[:,1]), self.ymin))
         self.ymax = np.floor(max(np.max(obs_coords[:,1]), self.ymax))
     
-
     def change_start_dest(self):
         self.start, self.dest = self.dest, self.start
         self.start_bbox, self.dest_bbox = self.dest_bbox, self.start_bbox
-
 
     def _flip_box_orientation(self, target_state:VehicleState):
         x, y, heading = target_state.pose
@@ -144,11 +141,9 @@ class Map(object):
         heading = heading + np.pi
         return VehicleState([new_x, new_y, heading])
 
-
     def flip_dest_orientation(self):
         self.dest = self._flip_box_orientation(self.dest)
         self.dest_bbox = self.dest.bbox
-
 
     def flip_start_orientation(self):
         self.start = self._flip_box_orientation(self.start)

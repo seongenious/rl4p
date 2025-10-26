@@ -2,6 +2,7 @@ import numpy as np
 import pygame
 
 from shapely.affinity import affine_transform
+from shapely.geometry import LineString
 
 from typing import TYPE_CHECKING, Optional, Any
 
@@ -66,6 +67,11 @@ class EnvViewer:
 
         pygame.draw.polygon(
             self.screen, self.config.color.vehicle, self._coord_transform(self.env.vehicle.bbox))
+
+        if self.env.rs_path is not None:
+            rs_path = LineString(point[:2] for point in self.env.rs_path)
+            pygame.draw.lines(
+                self.screen, self.config.color.rs_path, False,self._coord_transform(rs_path), width=1)
 
         pygame.display.update()
         self.clock.tick(self.fps)
