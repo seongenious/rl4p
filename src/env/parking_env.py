@@ -83,11 +83,6 @@ class ParkingEnv(gym.Env):
     def step(self, action: np.ndarray = None) -> Tuple[Any, float, bool, Dict[str, Any]]:
         prev_state = self.vehicle.state
 
-        start = self.vehicle.state.pose
-        goal = self.map.dest.pose
-
-        self.rs_path = self._find_rs_path()
-        
         status = EnvStatus.RUNNING
         if action is not None:
             prev_info = self.vehicle.step(action)
@@ -108,10 +103,16 @@ class ParkingEnv(gym.Env):
         # Get observation
         obs = self.observe()
 
-        # Get reward
-        reward = self.compute_reward()
+        # Compute reward
+        reward_info = self.compute_reward()
 
-        return obs, self.reward, status, None
+        # Create info
+        self.rs_path = self._find_rs_path()
+        info = {
+            'rs_path': self.rs_path,
+        }
+
+        return obs, self.reward, status, info
     
     def _is_arrived(self) -> bool:
         ego_bbox = Polygon(self.vehicle.bbox)
@@ -152,7 +153,7 @@ class ParkingEnv(gym.Env):
 
             path = [[rs_path.x[k], rs_path.y[k], rs_path.yaw[k]] for k in range(len(rs_path.x))]
             if self._is_path_valid(path):
-                return path
+                return rs_path
 
         return None
     

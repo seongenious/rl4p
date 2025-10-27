@@ -27,7 +27,7 @@ class VehicleConfig:
 
 class ActionConfig:
     speed: List[float] = [-2.5, 2.5]  # [m/s]
-    steer: List[float] = [-0.75, 0.75]  # [rad]
+    steer: List[float] = [-0.7, 0.7]  # [rad]
     accel: List[float] = [-1.0, 1.0]  # [m/s^2]
     angular_speed: List[float] = [-0.5, 0.5]  # [rad/s]
     precision: int = 10
@@ -64,6 +64,7 @@ class ColorConfig:
     trajectory_colors: List[Tuple[int, int, int, int]] = list(
         map(tuple, np.linspace(np.array(trajectory_low), np.array(trajectory_high), trajectory_render_len, endpoint=True, dtype=np.uint8)))
     vehicle: Tuple[int, int, int, int] = (30, 144, 255, 255)
+    text: Tuple[int, int, int, int] = (0, 0, 0, 255)
 
 
 class EnvStatus(Enum):

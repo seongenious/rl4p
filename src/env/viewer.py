@@ -33,9 +33,11 @@ class EnvViewer:
         display_flags = pygame.SHOWN if self.render_mode == "human" else pygame.HIDDEN
         pygame.init()
         pygame.display.init()
+        pygame.font.init()
         self.screen = pygame.display.set_mode(
             (self.config.width, self.config.height), flags = display_flags)
 
+        self.font = pygame.font.Font(None, 24)
         self.clock = pygame.time.Clock()
     
     def reset(self) -> None:
@@ -69,12 +71,21 @@ class EnvViewer:
             self.screen, self.config.color.vehicle, self._coord_transform(self.env.vehicle.bbox))
 
         if self.env.rs_path is not None:
-            rs_path = LineString(point[:2] for point in self.env.rs_path)
+            rs_path = self.env.rs_path
+            path = [[rs_path.x[k], rs_path.y[k], rs_path.yaw[k]] for k in range(len(rs_path.x))]
+            linestring = LineString(point[:2] for point in path)
             pygame.draw.lines(
-                self.screen, self.config.color.rs_path, False,self._coord_transform(rs_path), width=1)
+                self.screen, self.config.color.rs_path, False, self._coord_transform(linestring), width=1)
+
+        self._render_info_text()
 
         pygame.display.update()
         self.clock.tick(self.fps)
+    
+    def _render_info_text(self) -> None:
+        info_text = f"Reward: {self.env.reward:.3f} ({self.env.sim_time} steps)"
+        info_surface = self.font.render(info_text, True, self.config.color.text)
+        self.screen.blit(info_surface, (10, 10))
     
     def close(self) -> None:
         if self.screen is not None:
