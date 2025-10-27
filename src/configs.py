@@ -51,6 +51,21 @@ class ObservationConfig:
     max_dist_to_dest: float = 20
 
 
+class ActorConfig:
+    img_shape: Tuple[int, int, int] = (3, 64, 64)
+    kernel_size: int = 3
+    embed_dim: int = 128
+    conv_dims: List[int] = [16, 32, 64]
+    fc_dims: List[int] = [256]
+
+
+class CriticConfig:
+    embed_dim: int = 128
+    conv_dims: List[int] = [16, 32, 64]
+    fc_dims: List[int] = [256]
+    kernel_size: int = 3
+
+
 class ColorConfig:
     background: Tuple[int, int, int, int] = (12, 12, 12, 255)
     start: Tuple[int, int, int, int] = (100, 149, 237, 255)
@@ -58,12 +73,12 @@ class ColorConfig:
     obstacle: Tuple[int, int, int, int] = (150, 150, 150, 255)
     collision: Tuple[int, int, int, int] = (254, 109, 115, 255)
     rs_path: Tuple[int, int, int, int] = (0, 0, 255, 255)
-    trajectory_high: Tuple[int, int, int, int] = (10, 10, 200, 255)
-    trajectory_low: Tuple[int, int, int, int] = (10, 10, 10, 255)
+    trajectory_high: Tuple[int, int, int, int] = (30, 30, 255, 255)
+    trajectory_low: Tuple[int, int, int, int] = (30, 30, 30, 255)
     trajectory_render_len: int = 20
     trajectory_colors: List[Tuple[int, int, int, int]] = list(
         map(tuple, np.linspace(np.array(trajectory_low), np.array(trajectory_high), trajectory_render_len, endpoint=True, dtype=np.uint8)))
-    vehicle: Tuple[int, int, int, int] = (30, 144, 255, 255)
+    vehicle: Tuple[int, int, int, int] = (30, 30, 255, 255)
     text: Tuple[int, int, int, int] = (0, 0, 0, 255)
 
 
@@ -83,12 +98,15 @@ class EnvConfig:
     render_scale: int = 12
     rs_max_dist: float = 10
     rs_max_iter: int = 4
+    render_rs_path: bool = True
     render_traj: bool = True
+    render_info: bool = True
     success_threshold: float = 0.95
 
     vehicle: VehicleConfig = VehicleConfig()
     action: ActionConfig = ActionConfig()
     observation: ObservationConfig = ObservationConfig()
     color: ColorConfig = ColorConfig()
-    
+    actor: ActorConfig = ActorConfig()
+    critic: CriticConfig = CriticConfig()
     

@@ -70,14 +70,23 @@ class EnvViewer:
         pygame.draw.polygon(
             self.screen, self.config.color.vehicle, self._coord_transform(self.env.vehicle.bbox))
 
-        if self.env.rs_path is not None:
+        if self.config.render_traj and len(self.env.vehicle.trajectory) > 1:
+            traj_len = min(len(self.env.vehicle.trajectory), self.config.color.trajectory_render_len)
+            traj_colors = self.config.color.trajectory_colors
+            for i in range(traj_len):
+                bbox = self.env.vehicle.trajectory[-(traj_len - i)].bbox
+                pygame.draw.polygon(
+                    self.screen, traj_colors[-(traj_len - i)], self._coord_transform(bbox))
+
+        if self.config.render_rs_path and self.env.rs_path is not None:
             rs_path = self.env.rs_path
             path = [[rs_path.x[k], rs_path.y[k], rs_path.yaw[k]] for k in range(len(rs_path.x))]
             linestring = LineString(point[:2] for point in path)
             pygame.draw.lines(
                 self.screen, self.config.color.rs_path, False, self._coord_transform(linestring), width=1)
 
-        self._render_info_text()
+        if self.config.render_info:
+            self._render_info_text()
 
         pygame.display.update()
         self.clock.tick(self.fps)

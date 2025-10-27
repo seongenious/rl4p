@@ -41,8 +41,12 @@ if __name__ == "__main__":
     img_dir = Path("../data/img")
     img_dir.mkdir(parents=True, exist_ok=True)
 
-    # Setup environment and paths
+    # Setup config
     config = EnvConfig()
+    config.render_rs_path = False
+    config.render_info = False
+
+    # Setup environment
     env = env.ParkingEnv(render_mode="rgb_array", config=config)
 
     # Setup planner
