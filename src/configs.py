@@ -47,16 +47,16 @@ class ObservationConfig:
     img_channels: int = 3
     img_downsample_rate: int = 4
     target_dim: int = 5
-    use_obstacle: bool = False
+    use_obstacle: bool = True
     max_dist_to_dest: float = 20
 
 
 class ColorConfig:
-    background: Tuple[int, int, int, int] = (255, 255, 255, 255)
+    background: Tuple[int, int, int, int] = (12, 12, 12, 255)
     start: Tuple[int, int, int, int] = (100, 149, 237, 255)
-    destination: Tuple[int, int, int, int] = (69, 139, 0, 255)
+    destination: Tuple[int, int, int, int] = (69, 139, 12, 255)
     obstacle: Tuple[int, int, int, int] = (150, 150, 150, 255)
-    collision: Tuple[int, int, int, int] = (255, 0, 0, 255)
+    collision: Tuple[int, int, int, int] = (254, 109, 115, 255)
     rs_path: Tuple[int, int, int, int] = (0, 0, 255, 255)
     trajectory_high: Tuple[int, int, int, int] = (10, 10, 200, 255)
     trajectory_low: Tuple[int, int, int, int] = (10, 10, 10, 255)

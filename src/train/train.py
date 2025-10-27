@@ -10,8 +10,6 @@ from model.planner import RsPlanner
 from configs import EnvStatus, EnvConfig
 
 
-USE_PLANNER = True
-
 if __name__ == "__main__":
     env = env.ParkingEnv(render_mode="human")
 
@@ -22,14 +20,14 @@ if __name__ == "__main__":
         obs = env.reset(i + 1)
         done = False
         while not done:
-            if USE_PLANNER:
-                action = planner.get_action()
-            else:
+            action = planner.get_action()
+            if action is None:
                 action = env.action_space.sample()
 
             obs, reward, status, info = env.step(action=action)
             done = status != EnvStatus.RUNNING
 
-            planner.set_path(info['rs_path'])
+            if info['rs_path'] is not None:
+                planner.set_path(info['rs_path'])
     
     env.close()

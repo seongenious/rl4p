@@ -58,7 +58,7 @@ class Map(object):
             self.case_id = np.random.randint(0, len(self.map_data))
         else:
             if case_id >= len(self.map_data):
-                case_id = case_id%len(self.map_data)
+                case_id = case_id % len(self.map_data)
             self.case_id = case_id
 
         # Get poses from map data
