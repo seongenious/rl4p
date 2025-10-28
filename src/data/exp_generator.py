@@ -8,6 +8,7 @@ from tqdm import tqdm
 import numpy as np
 import pickle
 import torch
+from typing import Any
 
 import env.parking_env as env
 from model.planner import RsPlanner
@@ -15,7 +16,7 @@ from model.autoencoder import AutoEncoder
 from configs import EnvStatus, EnvConfig
 
 
-def save_image(img, img_path, quality=95):
+def save_image(img: np.ndarray, img_path: Path, quality: int = 95) -> None:
     """Save image with optimized settings"""
     # Convert to uint8 if needed
     if img.dtype != np.uint8:
@@ -34,29 +35,17 @@ def save_image(img, img_path, quality=95):
     cv2.imwrite(str(img_path), img_bgr, [cv2.IMWRITE_JPEG_QUALITY, quality])
 
 
-def load_autoencoder(model_path="../model/autoencoder.pth"):
+def load_encoder(path: str = '../model/autoencoder.pth'):
     """Load pre-trained autoencoder model"""
     try:
-        autoencoder = torch.load(model_path, map_location='cpu')
-        autoencoder.eval()
-        print(f"AutoEncoder loaded from {model_path}")
-        return autoencoder
+        encoder = torch.load(path, map_location='cpu')
+        encoder.eval()
+        return encoder
     except FileNotFoundError:
-        print(f"AutoEncoder model not found at {model_path}")
-        print("Creating a new AutoEncoder model...")
-        # Create a new autoencoder with default parameters
-        autoencoder = AutoEncoder(
-            img_dim=(3, 64, 64),
-            kernel_size=3,
-            embed_dim=128,
-            conv_dims=[4, 8, 16],
-            fc_dims=[256]
-        )
-        autoencoder.eval()
-        return autoencoder
+        raise FileNotFoundError(f"AutoEncoder model not found at {path}")
 
 
-def extract_bev_features(autoencoder, img):
+def extract_bev_features(encoder: Any, img: np.ndarray) -> np.ndarray:
     """Extract BEV features using autoencoder"""
     with torch.no_grad():
         # Convert numpy array to torch tensor
@@ -74,20 +63,24 @@ def extract_bev_features(autoencoder, img):
             img_tensor = img_tensor / 255.0
         
         # Extract features
-        mean, std = autoencoder.embed(img_tensor)
+        mean, std = encoder.embed(img_tensor)
         return mean.squeeze(0).numpy()  # Return mean features
 
 
-def generate_guardian_data(autoencoder, env, num_episodes, max_steps_per_episode):
+def generate_data(
+    encoder: Any, 
+    env: env.ParkingEnv, 
+    num_episodes: int, 
+    max_steps_per_episode: int
+) -> List[Dict[str, Any]]:
     """Generate guardian training data"""
-    collision_data = []
+    data = []
     
-    for episode_idx in tqdm(range(num_episodes), desc="Generating collision data"):
+    for episode_idx in tqdm(range(num_episodes), desc="Generating data..."):
         obs = env.reset(episode_idx + 1)
         done = False
-        step_count = 0
         
-        while not done and step_count < max_steps_per_episode:
+        while not done:
             # Sample random action
             action = env.action_space.sample()
             delta, speed = action[0], action[1]
@@ -95,37 +88,24 @@ def generate_guardian_data(autoencoder, env, num_episodes, max_steps_per_episode
             # Take step
             obs, reward, status, info = env.step(action=action)
             
-            # Check collision
-            is_collision = (status == EnvStatus.COLLISION)
-            
             # Extract BEV features
             img = obs['img']
-            bev_features = extract_bev_features(autoencoder, img)
+            bev_features = extract_bev_features(encoder, img)
             
             # Store data
-            data_point = {
+            data.append({
                 'bev_features': bev_features,
-                'delta': delta,
-                'speed': speed,
-                'is_collision': is_collision,
-                'episode': episode_idx,
-                'step': step_count,
-                'status': status.value
-            }
-            collision_data.append(data_point)
+                'action': action,
+                'collision': (status == EnvStatus.COLLISION),
+            })
             
-            step_count += 1
             done = status != EnvStatus.RUNNING
     
-    return collision_data
+    return data
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate guardian training data')
-    parser.add_argument('--num_episodes', type=int, default=100,
-                        help='Number of episodes to generate')
-    parser.add_argument('--max_steps', type=int, default=200,
-                        help='Maximum steps per episode')
     parser.add_argument('--autoencoder_path', type=str, default="../model/autoencoder.pth",
                         help='Path to autoencoder model')
     parser.add_argument('--output_dir', type=str, default="../data/collision",
@@ -142,7 +122,7 @@ if __name__ == "__main__":
     config.render_info = False
 
     # Setup environment
-    parking_env = env.ParkingEnv(render_mode="rgb_array", config=config)
+    env = env.ParkingEnv(render_mode="rgb_array", config=config)
 
     # Load autoencoder
     autoencoder = load_autoencoder(args.autoencoder_path)
