@@ -92,7 +92,11 @@ class EnvViewer:
         self.clock.tick(self.fps)
     
     def _render_info_text(self) -> None:
-        info_text = f"Reward: {self.env.reward:.3f} ({self.env.sim_time} steps)"
+        if self.env.risk is not None:
+            info_text = f"Reward: {self.env.reward:.3f}  Risk: {self.env.risk:.3f}"
+        else:
+            info_text = f"Reward: {self.env.reward:.3f}"
+        
         info_surface = self.font.render(info_text, True, self.config.color.text)
         self.screen.blit(info_surface, (10, 10))
     

@@ -38,11 +38,14 @@ class Map(object):
         self.ymin, self.ymax = 0, 0
         self.n_obstacle = 0
         self.obstacles: List[Area] = []
+        self.multi_start = False
         
         try:
             with open(data_dir, 'rb') as f:
                 self.map_data = pickle.load(f)
+            
             self.multi_start = isinstance(self.map_data[0][0], list)
+
         except Exception as e:
             print(f"Error loading map data: {e}")
             self.map_data = None
@@ -52,6 +55,7 @@ class Map(object):
         if data_dir is not None:
             with open(data_dir, 'rb') as f:
                 self.map_data = pickle.load(f)
+            
             self.multi_start = isinstance(self.map_data[0][0], list)
           
         if case_id is None:

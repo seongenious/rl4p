@@ -51,10 +51,7 @@ class ImageDataset(Dataset):
         
         # Load image
         image = Image.open(img_path).convert('RGB')
-        
-        # Resize image
-        # image = image.resize(self.img_size)
-        
+                
         # Convert to tensor and normalize
         image = np.array(image).astype(np.float32) / 255.0
         image = torch.from_numpy(image).permute(2, 0, 1)  # HWC -> CHW

@@ -48,7 +48,22 @@ class ObservationConfig:
     img_downsample_rate: int = 4
     target_dim: int = 5
     use_obstacle: bool = True
+    shuffle: bool = True
     max_dist_to_dest: float = 20
+
+
+class AutoEncoderConfig:
+    img_shape: Tuple[int, int, int] = (3, 64, 64)
+    kernel_size: int = 3
+    embed_dim: int = 128
+    conv_dims: List[int] = [16, 32, 64]
+    fc_dims: List[int] = [256]
+
+
+class GuardianConfig:
+    bev_feat_dim: int = 128
+    action_feat_dim: int = 8
+    hidden_dim: int = 128
 
 
 class ActorConfig:
@@ -66,6 +81,13 @@ class CriticConfig:
     kernel_size: int = 3
 
 
+class ModelConfig:
+    autoencoder: AutoEncoderConfig = AutoEncoderConfig()
+    guardian: GuardianConfig = GuardianConfig()
+    actor: ActorConfig = ActorConfig()
+    critic: CriticConfig = CriticConfig()
+
+
 class ColorConfig:
     background: Tuple[int, int, int, int] = (12, 12, 12, 255)
     start: Tuple[int, int, int, int] = (100, 149, 237, 255)
@@ -79,7 +101,7 @@ class ColorConfig:
     trajectory_colors: List[Tuple[int, int, int, int]] = list(
         map(tuple, np.linspace(np.array(trajectory_low), np.array(trajectory_high), trajectory_render_len, endpoint=True, dtype=np.uint8)))
     vehicle: Tuple[int, int, int, int] = (30, 30, 255, 255)
-    text: Tuple[int, int, int, int] = (0, 0, 0, 255)
+    text: Tuple[int, int, int, int] = (255, 255, 255, 255)
 
 
 class EnvStatus(Enum):

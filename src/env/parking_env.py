@@ -47,6 +47,7 @@ class ParkingEnv(gym.Env):
         )
         
         self.rs_path = None
+        self.risk = None
 
     def define_spaces(self, action_config, observation_config) -> None:
         self.action_space = spaces.Box(
