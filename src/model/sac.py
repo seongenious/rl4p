@@ -1,46 +1,395 @@
 from copy import deepcopy
+from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal
 import numpy as np
+import random
+from typing import Any
 
 from model.agent import Agent
 from model.replay_buffer import ReplayBuffer
+from model.adapter import TransformerAdapter
+from configs import ModelConfig
 
 
-class SAC(nn.Module):
-    def __init__(self):
-        super(SAC, self).__init__()
-
-        # Device
+class ModelBase(ABC):
+    def __init__(self, config: ModelConfig, save_params: bool=False, load_params: bool=False) -> None:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.config = config
+        self.check_list = []
+        self.save_params = save_params
+        self.load_params = load_params
+
+    @abstractmethod
+    def get_action(self, observation: Any) -> Any:
+        raise NotImplementedError
+
+    @abstractmethod
+    def update(self) -> None:
+        raise NotImplementedError
+
+    def _soft_update(self, target_net, current_net) -> None:
+        for target, current in zip(target_net.parameters(), current_net.parameters()):
+            target.data.copy_(current.data * self.config.tau + target.data * (1. - self.config.tau))
+
+    def push_memory(self, observations: Any) -> None:
+        if hasattr(self, 'buffer') is None:
+            raise ValueError("Buffer is not initialized")
+        self.buffer.push(observations)
+
+    def epsilon_greedy(self, action: Any, action_space: Any, epsilon: float=0.1) -> Any:
+        if random.random() > epsilon:
+            return action
+        return action_space.sample()
+
+    def lr_decay(self, lr: float, n_step: int, decay_type: str = "exp") -> float:
+        if decay_type == "linear":
+            lr = lr * (1 - n_step / self.config.max_train_steps)
+        elif decay_type == "exp":
+            lr = lr * np.exp(-n_step / self.config.max_train_steps)
+        return lr
+
+    def explore(self, action: Any, action_space: Any) -> Any:
+        explore_configs = self.config.explore_config
+        if explore_configs["type"] == "epsilon_greedy":
+            return self.epsilon_greedy(action, action_space, explore_configs["epsilon"])
+        return action
+
+    def save(self, path: str = None, params_only: bool = None) -> None:
+        if params_only is not None:
+            self.save_params = params_only
+        if self.save_params and len(self.check_list) > 0:
+            checkpoint = dict()
+            for name, item, save_state_dict in self.check_list:
+                checkpoint[name] = item.state_dict() if save_state_dict else item
+            torch.save(checkpoint, path)
+        else:
+            torch.save(self, path)
+
+        print("Save current model to %s" % path)
+
+    def load(self, path: str = None, params_only: bool = None) -> None:
+        if params_only is not None:
+            self.load_params = params_only
+        if self.load_params and len(self.check_list) > 0:
+            checkpoint = torch.load(path)
+            for name, item, save_state_dict in self.check_list:
+                if save_state_dict:
+                    item.load_state_dict(checkpoint[name])
+                else:
+                    item = checkpoint[name]
+        else:
+            torch.load(self, path)
+
+            path =f"{path}/{name}_{id}.pth"
+            state_dict = torch.load(path, map_location=self.device)
+            object.load_state_dict(state_dict)
+        
+
+class SAC(ModelBase):
+    def __init__(self, config: ModelConfig, save_params: bool=False, load_params: bool=False):
+        super().__init__(config, save_params, load_params)
 
         # Actor network
-        # self.actor = Transformer()
+        self.actor = TransformerAdapter(config.actor).to(self.device)
         self.log_std = nn.Parameter(-torch.zeros(1, 2)).to(self.device)
         self.log_std.requires_grad = True
         self.actor_optimizer = torch.optim.Adam(
           [{'params': self.actor.parameters()}, {'params': self.log_std}],
-          lr=0.001,
+          lr=config.actor.lr,
         )
 
         # Critic network
-        self.critic_1 = None
+        self.critic_1 = TransformerAdapter(config.critic).to(self.device)
         self.critic_target_1 = deepcopy(self.critic_1)
-        self.critic_optimizer_1 = torch.optim.Adam(self.critic_1.parameters(), lr=0.001)
+        self.critic_optimizer_1 = torch.optim.Adam(self.critic_1.parameters(), lr=config.critic.lr)
 
-        self.critic_2 = None
+        self.critic_2 = TransformerAdapter(config.critic).to(self.device)
         self.critic_target_2 = deepcopy(self.critic_2)
-        self.critic_optimizer_2 = torch.optim.Adam(self.critic_2.parameters(), lr=0.001)
+        self.critic_optimizer_2 = torch.optim.Adam(self.critic_2.parameters(), lr=config.critic.lr)
 
         # Alpha
         self.log_alpha = torch.tensor(np.log(0.01)).to(self.device)
         self.log_alpha.requires_grad = True
-        self.log_alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=0.001)
+        self.log_alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=config.alpha.lr)
 
         # Replay buffer
         self.buffer = ReplayBuffer(buffer_size=10240)
+
+        # Save and load
+        self.check_list = [ # (name, item, save_state_dict)
+            ("config", self.config, 0),
+            ("actor", self.actor, 1),
+            ("actor_optimizer", self.actor_optimizer, 1),
+            ("critic_1", self.critic_1, 1),
+            ("critic_target_1", self.critic_target_1, 1),
+            ("critic_optimizer_1", self.critic_optimizer_1, 1),
+            ("critic_2", self.critic_2, 1),
+            ("critic_target_2", self.critic_target_2, 1),
+            ("critic_optimizer_2", self.critic_optimizer_2, 1),
+            ("log_alpha", self.log_alpha, 0),
+            ("log_alpha_optimizer", self.log_alpha_optimizer, 1),
+            ("log_std", self.log_std, 0)
+        ]
     
+    def _actor_forward(self, obs) -> torch.distributions.Distribution:
+        observation = deepcopy(obs)
+        if self.configs.state_norm:
+            observation = self.state_normalize.state_norm(observation)
+        observation = self.obs2tensor(observation)
+        
+        with torch.no_grad():
+            policy_dist = self.actor_net(observation)
+            if len(policy_dist.shape) > 1 and policy_dist.shape[0] > 1:
+                raise NotImplementedError
+            mean =  torch.clamp(policy_dist,-1,1)  
+            log_std = self.log_std.expand_as(mean)  # To make 'log_std' have the same dimension as 'mean'
+            std = torch.exp(log_std)
+            dist = Normal(mean, std)
+            
+        return dist
     
+    def _post_process_action(self, action_dist:torch.distributions.Distribution , action_mask=None):
+        if action_mask is not None:
+            mean, std = action_dist.mean, action_dist.stddev
+            action = self.action_filter.choose_action(mean, std, action_mask)
+            action = torch.FloatTensor(action).to(self.device)
+        else:
+            action = action_dist.sample()
+
+        if not self.discrete and self.configs.dist_type == "gaussian":
+                action = torch.clamp(action, -1, 1)
+        log_prob = action_dist.log_prob(action)
+        action = action.detach().cpu().numpy().flatten()
+        log_prob = log_prob.detach().cpu().numpy().flatten()
+        return action, log_prob
+
+    def choose_action(self, obs):
+
+        dist = self._actor_forward(obs)
+        action_mask = obs['action_mask']
+        action, other_info = self._post_process_action(dist, action_mask)
+
+        return action, other_info
+
+    def get_action(self, obs: np.ndarray):
+        '''Take action based on one observation. 
+
+        Args:
+            observation(np.ndarray): np.ndarray with the same shape of self.state_dim.
+
+        Returns:
+            action: If self.discrete, the action is an (int) index. 
+                If the action space is continuous, the action is an (np.ndarray).
+            log_prob(np.ndarray): the log probability of taken action.
+        '''
+        dist = self._actor_forward(obs)
+        action, log_prob = self._post_process_action(dist)
+                
+        return action, log_prob
+
+    def get_log_prob(self, obs: np.ndarray, action: np.ndarray):
+        '''get the log probability for given action based on current policy
+
+        Args:
+            observation(np.ndarray): np.ndarray with the same shape of self.state_dim.
+
+        Returns:
+            log_prob(np.ndarray): the log probability of taken action.
+        '''
+        dist = self._actor_forward(obs)
+        
+        action = torch.FloatTensor(action).to(self.device)
+        log_prob = dist.log_prob(action)
+        log_prob = log_prob.detach().cpu().numpy().flatten()
+        return log_prob
+
+    def push_memory(self, observations):
+        '''
+        Args:
+            observations(tuple): (obs, action, reward, done, log_prob, next_obs)
+        '''
+        obs, action, reward, done, log_prob, next_obs = deepcopy(observations)
+        if self.configs.state_norm:
+            obs = self.state_normalize.state_norm(obs)
+            next_obs = self.state_normalize.state_norm(next_obs,update=True)
+        observations = (obs, action, reward, done, log_prob, next_obs)
+        self.memory.push(observations)
+
+    def _reward_norm(self, reward):
+        return (reward - reward.mean()) / (reward.std() + 1e-8)
+
+    def obs2tensor(self, obs):
+        if isinstance(obs, list):
+            merged_obs = {}
+            for obs_type in self.configs.observation_shape.keys():
+                merged_obs[obs_type] = []
+                for o in obs:
+                    merged_obs[obs_type].append(o[obs_type])
+                merged_obs[obs_type] = torch.FloatTensor(np.array(merged_obs[obs_type])).to(self.device)
+            obs = merged_obs 
+        elif isinstance(obs, dict):
+            for obs_type in self.configs.observation_shape.keys():
+                obs[obs_type] = torch.FloatTensor(obs[obs_type]).to(self.device).unsqueeze(0)
+        else:
+            raise NotImplementedError()
+        return obs
+    
+    def get_obs(self, obs, ids):
+        return {k:obs[k][ids] for k in obs }
+    
+    def _merge_state_action(self, state:dict, action:torch.tensor):
+        state['action'] = action
+        return state
+    
+    @property
+    def alpha(self):
+        return self.log_alpha.exp()
+    
+    def _get_action_and_log_prob(self, obs):
+        action_policy = self.actor_net(obs)
+        mean =  torch.clamp(action_policy,-1,1)
+        log_std = self.log_std.expand_as(mean)
+        std = torch.exp(log_std)
+        action_dist = Normal(mean, std)
+        action_batch = action_dist.rsample()
+        
+        action_batch = torch.clamp(action_batch, -1, 1)
+        log_prob = action_dist.log_prob(action_batch)
+        return action_batch, log_prob
+
+    def update(self):
+        for _ in range(self.configs.mini_epoch):
+            batches = self.memory.sample(self.configs.batch_size)
+            state_batch = self.obs2tensor(batches["state"])
+            action_batch = torch.FloatTensor(batches["action"]).to(self.device)
+            rewards = torch.FloatTensor(np.array(batches["reward"])).unsqueeze(1)
+            reward_batch = self._reward_norm(rewards) \
+                if self.configs.reward_norm else rewards
+            reward_batch = reward_batch.to(self.device)
+            done_batch = torch.FloatTensor(batches["done"]).to(self.device).unsqueeze(1)
+            next_state_batch = self.obs2tensor(batches["next_obs"])
+            
+            # soft Q loss
+            with torch.no_grad():
+                next_action_batch, next_log_prob = self._get_action_and_log_prob(next_state_batch)
+                next_log_prob = next_log_prob.sum(-1, keepdim=True)
+                q1_target = self.critic_target_net1(next_state_batch, next_action_batch)
+                q2_target = self.critic_target_net2(next_state_batch, next_action_batch)
+                q_target = reward_batch + (1 - done_batch) * self.configs.gamma * (
+                    torch.min(q1_target, q2_target) - self.alpha.detach() * next_log_prob
+                )
+
+            current_q1 = self.critic_net1(state_batch, action_batch)
+            current_q2 = self.critic_net2(state_batch, action_batch)
+            q1_loss = F.mse_loss(current_q1, q_target.detach())
+            q2_loss = F.mse_loss(current_q2, q_target.detach())
+
+            # update the critic networks
+            self.critic_optimizer1.zero_grad()
+            q1_loss.backward()
+            self.critic_optimizer1.step()
+            self.critic_optimizer2.zero_grad()
+            q2_loss.backward()
+            self.critic_optimizer2.step()
+
+            # freeze critic network
+            for params in self.critic_net1.parameters():
+                params.requires_grad = False
+            for params in self.critic_net2.parameters():
+                params.requires_grad = False
+
+            # policy loss
+            action_, log_prob = self._get_action_and_log_prob(state_batch)
+            log_prob = log_prob.sum(-1, keepdim=True)
+            q1_value = self.critic_net1(state_batch, action_)
+            q2_value = self.critic_net2(state_batch, action_)
+            actor_loss = (self.alpha.detach() * log_prob - torch.min(q1_value, q2_value)).mean()
+
+            # update the actor network
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            self.actor_optimizer.step()
+
+            # unfreeze critic network
+            for params in self.critic_net1.parameters():
+                params.requires_grad = True
+            for params in self.critic_net2.parameters():
+                params.requires_grad = True
+
+            # optimize alpha
+            if self.configs.learn_temperature:
+                alpha_loss = (self.alpha * (-log_prob - self.configs.target_entropy).detach()).mean()
+                self.log_alpha_optimizer.zero_grad()
+                alpha_loss.backward()
+                self.log_alpha_optimizer.step()
+
+            # soft update target networks
+            self._soft_update(self.critic_target_net1, self.critic_net1)
+            self._soft_update(self.critic_target_net2, self.critic_net2)
+
+
+        # for debug
+        a = actor_loss.detach().cpu().numpy()
+        b = q1_loss.item()
+        return a, b
+
+    def save(self, path: str = None, params_only: bool = None) -> None:
+        """Store the model structure and corresponding parameters to a file.
+        """
+        if params_only is not None:
+            self.save_params = params_only
+        if self.save_params and len(self.check_list) > 0:
+            checkpoint = dict()
+            for name, item, save_state_dict in self.check_list:
+                checkpoint[name] = item.state_dict() if save_state_dict else item
+            # for PPO extra save
+            if self.configs.dist_type == "gaussian":
+                checkpoint['log'] = self.log_std
+            checkpoint['state_norm'] = self.state_normalize # (self.state_mean, self.state_std, self.S, self.n_state)
+            checkpoint['optimizer'] = (self.actor_optimizer, self.critic_optimizer1, self.critic_optimizer2)
+            torch.save(checkpoint, path)
+        else:
+            torch.save(self, path)
+        
+        if self.verbose:
+            print("Save current model to %s" % path)
+
+    def load(self, path: str = None, params_only: bool = None) -> None:
+        """Load the model structure and corresponding parameters from a file.
+        """
+        if params_only is not None:
+            self.load_params = params_only
+        if self.load_params and len(self.check_list) > 0:
+            checkpoint = torch.load(path, map_location=self.device)
+            for name, item, save_state_dict in self.check_list:
+                if save_state_dict:
+                    item.load_state_dict(checkpoint[name])
+                else:
+                    item = checkpoint[name]
+
+            self.log_std.data.copy_(checkpoint['log']) 
+            
+            self.state_normalize = checkpoint['state_norm'] 
+            if 'optimizer' in checkpoint.keys():
+                self.actor_optimizer, self.critic_optimizer1, self.critic_optimizer2 = checkpoint['optimizer']
+        else:
+            torch.load(self, path)
+        
+            path =f"{path}/{name}_{id}.pth"
+            state_dict = torch.load(path, map_location=self.device)
+            object.load_state_dict(state_dict)
+
+        if self.verbose:
+            print("Load the model from %s" % path)
+
+    def load_img_encoder(self, path: str = None, require_grad: bool = False) -> None:
+        self.actor_net.load_img_encoder(path, self.device, require_grad)
+        self.critic_net1.load_img_encoder(path, self.device, require_grad)
+        self.critic_target_net1 = deepcopy(self.critic_net1).to(self.device)
+        self.critic_net2.load_img_encoder(path, self.device, require_grad)
+        self.critic_target_net2 = deepcopy(self.critic_net2).to(self.device)
+        print('Load pretrained image encoder from path: %s'%path)

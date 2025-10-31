@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from enum import Enum
 
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from shapely.geometry import LinearRing
 
 
@@ -52,42 +52,6 @@ class ObservationConfig:
     max_dist_to_dest: float = 20
 
 
-class AutoEncoderConfig:
-    img_shape: Tuple[int, int, int] = (3, 64, 64)
-    kernel_size: int = 3
-    embed_dim: int = 128
-    conv_dims: List[int] = [16, 32, 64]
-    fc_dims: List[int] = [256]
-
-
-class GuardianConfig:
-    bev_feat_dim: int = 128
-    action_feat_dim: int = 8
-    hidden_dim: int = 128
-
-
-class ActorConfig:
-    img_shape: Tuple[int, int, int] = (3, 64, 64)
-    kernel_size: int = 3
-    embed_dim: int = 128
-    conv_dims: List[int] = [16, 32, 64]
-    fc_dims: List[int] = [256]
-
-
-class CriticConfig:
-    embed_dim: int = 128
-    conv_dims: List[int] = [16, 32, 64]
-    fc_dims: List[int] = [256]
-    kernel_size: int = 3
-
-
-class ModelConfig:
-    autoencoder: AutoEncoderConfig = AutoEncoderConfig()
-    guardian: GuardianConfig = GuardianConfig()
-    actor: ActorConfig = ActorConfig()
-    critic: CriticConfig = CriticConfig()
-
-
 class ColorConfig:
     background: Tuple[int, int, int, int] = (12, 12, 12, 255)
     start: Tuple[int, int, int, int] = (100, 149, 237, 255)
@@ -129,6 +93,85 @@ class EnvConfig:
     action: ActionConfig = ActionConfig()
     observation: ObservationConfig = ObservationConfig()
     color: ColorConfig = ColorConfig()
+    
+
+class AutoEncoderConfig:
+    img_shape: Tuple[int, int, int] = (3, 64, 64)
+    kernel_size: int = 3
+    embed_dim: int = 128
+    conv_dims: List[int] = [16, 32, 64]
+    fc_dims: List[int] = [256]
+
+
+class GuardianConfig:
+    bev_feat_dim: int = 128
+    action_feat_dim: int = 8
+    hidden_dim: int = 128
+
+
+class ActorConfig:
+    img_shape: Tuple[int, int, int] = (3, 64, 64)
+    kernel_size: int = 3
+    embed_dim: int = 128
+    conv_dims: List[int] = [16, 32, 64]
+    fc_dims: List[int] = [256]
+
+
+class CriticConfig:
+    embed_dim: int = 128
+    conv_dims: List[int] = [16, 32, 64]
+    fc_dims: List[int] = [256]
+    kernel_size: int = 3
+
+
+class ModelConfig:
+    # Runtime
+    n_epoch: int = 100
+    n_initial_exploration_steps: int = 10000
+
+    # Environment
+    state_dim: Tuple = (128, 128, 3)
+    action_dim: Tuple = (2,)
+    
+    # Train
+    gamma: float = 0.98
+    batch_size: int = 8192
+    lr: float = 5e-6
+    tau: float = 0.005
+    adam_epsilon: float = 1e-8
+    dist_type: str = "gaussian"
+    
+    hidden_size: int = 256
+    memory_size: int = 10240
+    batch_size: int = 32
+    mini_epoch: int = 1
+    initial_temperature: float = 0.01
+    action_dim: int = 2
+    target_entropy: int = -action_dim
+
+    explore: bool = True
+    explore_config: Dict = {
+        "type": "epsilon_greedy",
+        "epsilon": 0.1
+    }
+    max_train_steps: int = 1e6
+
+    # Tricks
+    orthogonal_init: bool = True
+    lr_decay: bool = False
+
+    # Evaluation
+    evaluation_interval: int = 1000
+
+    # Save and load
+    check_list: List[str] = []
+
+    # Model
+    autoencoder: AutoEncoderConfig = AutoEncoderConfig()
+    guardian: GuardianConfig = GuardianConfig()
     actor: ActorConfig = ActorConfig()
     critic: CriticConfig = CriticConfig()
-    
+
+    def merge(self, configs: Dict) -> None:
+        for k, v in configs.items():
+            setattr(self, k, v)
