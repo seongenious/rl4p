@@ -1,5 +1,4 @@
 from copy import deepcopy
-from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
@@ -9,35 +8,70 @@ import numpy as np
 import random
 from typing import Any
 
-from model.agent import Agent
 from model.replay_buffer import ReplayBuffer
 from model.adapter import TransformerAdapter
-from configs import ModelConfig
+from configs import *
 
 
-class ModelBase(ABC):
-    def __init__(self, config: ModelConfig, save_params: bool=False, load_params: bool=False) -> None:
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+class SAC(object):
+    def __init__(self, config: ModelConfig, save_params: bool=False, load_params: bool=False):
+        self.device = device
         self.config = config
-        self.check_list = []
         self.save_params = save_params
         self.load_params = load_params
+        self.check_list = []
+        self.buffer = ReplayBuffer(buffer_size=self.config.buffer_size)
 
-    @abstractmethod
-    def get_action(self, observation: Any) -> Any:
-        raise NotImplementedError
+        # Actor network
+        self.actor = TransformerAdapter(self.config.actor).to(self.device)
+        self.log_std = nn.Parameter(
+            -torch.zeros(1, self.config.action_dim), requires_grad=False
+            ).to(self.device)
+        self.log_std.requires_grad = True
+        self.actor_optimizer = torch.optim.Adam(
+          [{'params': self.actor.parameters()}, {'params': self.log_std}], lr=self.config.lr)
 
-    @abstractmethod
-    def update(self) -> None:
-        raise NotImplementedError
+        # Critic network
+        self.critic_1 = TransformerAdapter(self.config.critic).to(self.device)
+        self.critic_target_1 = deepcopy(self.critic_1)
+        self.critic_optimizer_1 = torch.optim.Adam(
+            self.critic_1.parameters(), lr=self.config.lr)
 
+        self.critic_2 = TransformerAdapter(self.config.critic).to(self.device)
+        self.critic_target_2 = deepcopy(self.critic_2)
+        self.critic_optimizer_2 = torch.optim.Adam(
+            self.critic_2.parameters(), lr=self.config.lr)
+
+        # Alpha
+        self.log_alpha = torch.tensor(np.log(self.config.initial_temperature)).to(self.device)
+        self.log_alpha.requires_grad = True
+        self.log_alpha_optimizer = torch.optim.Adam(
+            [self.log_alpha], lr=self.config.lr)
+
+        # Replay buffer
+        self.buffer = ReplayBuffer(buffer_size=self.config.buffer_size)
+
+        # Save and load
+        self.check_list = [ # (name, item, save_state_dict)
+            ("config", self.config, 0),
+            ("actor", self.actor, 1),
+            ("actor_optimizer", self.actor_optimizer, 1),
+            ("critic_1", self.critic_1, 1),
+            ("critic_target_1", self.critic_target_1, 1),
+            ("critic_optimizer_1", self.critic_optimizer_1, 1),
+            ("critic_2", self.critic_2, 1),
+            ("critic_target_2", self.critic_target_2, 1),
+            ("critic_optimizer_2", self.critic_optimizer_2, 1),
+            ("log_alpha", self.log_alpha, 0),
+            ("log_alpha_optimizer", self.log_alpha_optimizer, 1),
+            ("log_std", self.log_std, 0)
+        ]
+    
     def _soft_update(self, target_net, current_net) -> None:
         for target, current in zip(target_net.parameters(), current_net.parameters()):
             target.data.copy_(current.data * self.config.tau + target.data * (1. - self.config.tau))
 
     def push_memory(self, observations: Any) -> None:
-        if hasattr(self, 'buffer') is None:
-            raise ValueError("Buffer is not initialized")
         self.buffer.push(observations)
 
     def epsilon_greedy(self, action: Any, action_space: Any, epsilon: float=0.1) -> Any:
@@ -58,83 +92,6 @@ class ModelBase(ABC):
             return self.epsilon_greedy(action, action_space, explore_configs["epsilon"])
         return action
 
-    def save(self, path: str = None, params_only: bool = None) -> None:
-        if params_only is not None:
-            self.save_params = params_only
-        if self.save_params and len(self.check_list) > 0:
-            checkpoint = dict()
-            for name, item, save_state_dict in self.check_list:
-                checkpoint[name] = item.state_dict() if save_state_dict else item
-            torch.save(checkpoint, path)
-        else:
-            torch.save(self, path)
-
-        print("Save current model to %s" % path)
-
-    def load(self, path: str = None, params_only: bool = None) -> None:
-        if params_only is not None:
-            self.load_params = params_only
-        if self.load_params and len(self.check_list) > 0:
-            checkpoint = torch.load(path)
-            for name, item, save_state_dict in self.check_list:
-                if save_state_dict:
-                    item.load_state_dict(checkpoint[name])
-                else:
-                    item = checkpoint[name]
-        else:
-            torch.load(self, path)
-
-            path =f"{path}/{name}_{id}.pth"
-            state_dict = torch.load(path, map_location=self.device)
-            object.load_state_dict(state_dict)
-        
-
-class SAC(ModelBase):
-    def __init__(self, config: ModelConfig, save_params: bool=False, load_params: bool=False):
-        super().__init__(config, save_params, load_params)
-
-        # Actor network
-        self.actor = TransformerAdapter(config.actor).to(self.device)
-        self.log_std = nn.Parameter(-torch.zeros(1, 2)).to(self.device)
-        self.log_std.requires_grad = True
-        self.actor_optimizer = torch.optim.Adam(
-          [{'params': self.actor.parameters()}, {'params': self.log_std}],
-          lr=config.actor.lr,
-        )
-
-        # Critic network
-        self.critic_1 = TransformerAdapter(config.critic).to(self.device)
-        self.critic_target_1 = deepcopy(self.critic_1)
-        self.critic_optimizer_1 = torch.optim.Adam(self.critic_1.parameters(), lr=config.critic.lr)
-
-        self.critic_2 = TransformerAdapter(config.critic).to(self.device)
-        self.critic_target_2 = deepcopy(self.critic_2)
-        self.critic_optimizer_2 = torch.optim.Adam(self.critic_2.parameters(), lr=config.critic.lr)
-
-        # Alpha
-        self.log_alpha = torch.tensor(np.log(0.01)).to(self.device)
-        self.log_alpha.requires_grad = True
-        self.log_alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=config.alpha.lr)
-
-        # Replay buffer
-        self.buffer = ReplayBuffer(buffer_size=10240)
-
-        # Save and load
-        self.check_list = [ # (name, item, save_state_dict)
-            ("config", self.config, 0),
-            ("actor", self.actor, 1),
-            ("actor_optimizer", self.actor_optimizer, 1),
-            ("critic_1", self.critic_1, 1),
-            ("critic_target_1", self.critic_target_1, 1),
-            ("critic_optimizer_1", self.critic_optimizer_1, 1),
-            ("critic_2", self.critic_2, 1),
-            ("critic_target_2", self.critic_target_2, 1),
-            ("critic_optimizer_2", self.critic_optimizer_2, 1),
-            ("log_alpha", self.log_alpha, 0),
-            ("log_alpha_optimizer", self.log_alpha_optimizer, 1),
-            ("log_std", self.log_std, 0)
-        ]
-    
     def _actor_forward(self, obs) -> torch.distributions.Distribution:
         observation = deepcopy(obs)
         if self.configs.state_norm:
@@ -387,9 +344,9 @@ class SAC(ModelBase):
             print("Load the model from %s" % path)
 
     def load_img_encoder(self, path: str = None, require_grad: bool = False) -> None:
-        self.actor_net.load_img_encoder(path, self.device, require_grad)
-        self.critic_net1.load_img_encoder(path, self.device, require_grad)
-        self.critic_target_net1 = deepcopy(self.critic_net1).to(self.device)
-        self.critic_net2.load_img_encoder(path, self.device, require_grad)
-        self.critic_target_net2 = deepcopy(self.critic_net2).to(self.device)
+        self.actor.load_img_encoder(path, self.device, require_grad)
+        self.critic_1.load_img_encoder(path, self.device, require_grad)
+        self.critic_target_1 = deepcopy(self.critic_1).to(self.device)
+        self.critic_2.load_img_encoder(path, self.device, require_grad)
+        self.critic_target_2 = deepcopy(self.critic_2).to(self.device)
         print('Load pretrained image encoder from path: %s'%path)

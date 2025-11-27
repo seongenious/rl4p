@@ -3,22 +3,27 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+from configs import *
+
 
 class Guardian(nn.Module):
-    def __init__(self, bev_dim: int = 128, action_dim: int = 8, hidden_dim: int = 128, wheel_base: float = 2.8, dt: float = 0.5):
+    def __init__(self, config: GuardianConfig) -> None:
         super(Guardian, self).__init__()
-        self.wheel_base = wheel_base
-        self.dt = dt
+
+        self.device = device
+
+        self.wheel_base = config.wheel_base
+        self.dt = config.dt
         self.action_embed = nn.Sequential(
-            nn.Linear(2, action_dim // 2),
+            nn.Linear(2, config.action_feat_dim // 2),
             nn.GELU(),
-            nn.Linear(action_dim // 2, action_dim)
+            nn.Linear(config.action_feat_dim // 2, config.action_feat_dim)
         )
         self.mlp = nn.Sequential(
-            nn.LayerNorm(bev_dim + action_dim),
-            nn.Linear(bev_dim + action_dim, hidden_dim),
+            nn.LayerNorm(config.bev_feat_dim + config.action_feat_dim),
+            nn.Linear(config.bev_feat_dim + config.action_feat_dim, config.hidden_dim),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1)
+            nn.Linear(config.hidden_dim, 1)
         )
 
     def _preprocess_action(self, action: torch.Tensor) -> torch.Tensor:
@@ -45,3 +50,9 @@ class Guardian(nn.Module):
         x = self.mlp(x)  # Keep shape [batch_size, 1]
         p_collide = torch.sigmoid(x)
         return p_collide
+
+    def load(self, path: str, require_grad: bool = False) -> None:
+        state_dict = torch.load(path, map_location=self.device, weights_only=False)
+        self.load_state_dict(state_dict)
+        for param in self.parameters():
+            param.requires_grad = require_grad

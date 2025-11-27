@@ -92,7 +92,7 @@ class TransformerEncoder(nn.Module):
         num_heads: int=8, 
         head_dim: int=64, 
         mlp_hidden_dim: int=128, 
-        n_features: int=1,
+        n_features: int=3,
         hidden_dim: int=128,
         output_dim: int=2,
         dropout: float=0.

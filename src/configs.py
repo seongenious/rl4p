@@ -107,32 +107,59 @@ class GuardianConfig:
     bev_feat_dim: int = 128
     action_feat_dim: int = 8
     hidden_dim: int = 128
+    wheel_base: float = 2.845
+    dt: float = 0.005
 
 
 class ActorConfig:
-    img_shape: Tuple[int, int, int] = (3, 64, 64)
+    # Flags
+    use_tanh_activate: bool = True
+    use_tanh_output: bool = True
+    # Input embedding
+    n_embed_layers: int = 3
+    state_dim: int = 5
+    target_dim: int = 5
+    img_dim: Tuple[int, int, int] = (3, 64, 64)
     kernel_size: int = 3
-    embed_dim: int = 128
     conv_dims: List[int] = [16, 32, 64]
     fc_dims: List[int] = [256]
-
+    embed_dim: int = 128
+    # Transformer encoder
+    depth: int = 1
+    num_heads: int = 8
+    head_dim: int = 32
+    mlp_hidden_dim: int = 128
+    hidden_dim: int = 128
+    output_dim: int = 2
+    dropout: float = 0.1
 
 class CriticConfig:
-    embed_dim: int = 128
+    # Flags
+    use_tanh_activate: bool = True
+    use_tanh_output: bool = True
+    # Input embedding
+    n_embed_layers: int = 3
+    state_dim: int = 5
+    target_dim: int = 5
+    img_dim: Tuple[int, int, int] = (3, 64, 64)
+    kernel_size: int = 3
     conv_dims: List[int] = [16, 32, 64]
     fc_dims: List[int] = [256]
-    kernel_size: int = 3
-
+    embed_dim: int = 128
+    # Transformer encoder
+    depth: int = 1
+    num_heads: int = 8
+    head_dim: int = 32
+    mlp_hidden_dim: int = 128
+    hidden_dim: int = 128
+    output_dim: int = 1
+    dropout: float = 0.1
 
 class ModelConfig:
     # Runtime
     n_epoch: int = 100
     n_initial_exploration_steps: int = 10000
 
-    # Environment
-    state_dim: Tuple = (128, 128, 3)
-    action_dim: Tuple = (2,)
-    
     # Train
     gamma: float = 0.98
     batch_size: int = 8192
@@ -141,8 +168,7 @@ class ModelConfig:
     adam_epsilon: float = 1e-8
     dist_type: str = "gaussian"
     
-    hidden_size: int = 256
-    memory_size: int = 10240
+    buffer_size: int = 10240
     batch_size: int = 32
     mini_epoch: int = 1
     initial_temperature: float = 0.01

@@ -3,10 +3,16 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+from model.sac import SAC
+from model.guardian import Guardian
+from model.planner import RsPlanner
+from configs import ModelConfig
 
-class Agent(nn.Module):
-    def __init__(self, rl_agent, planner=None) -> None:
+
+class Agent(object):
+    def __init__(self, rl_agent: SAC, guardian: Guardian = None, planner: RsPlanner = None) -> None:
         self.agent = rl_agent
+        self.guardian = guardian
         self.planner = planner
 
     def __getattr__(self, name: str):
@@ -14,19 +20,19 @@ class Agent(nn.Module):
             raise AttributeError("attempted to get missing private attribute '{}'".format(name))
         return getattr(self.agent, name)
     
-    def reset(self,):
+    def reset(self):
         if self.planner is not None:
             self.planner.reset()
 
     def set_planner_path(self, path=None, forced=False):
         if self.planner is None:
             return
-        if path is not None and (forced or self.planner.route is None):
-            self.planner.set_rs_path(path)
+        if path is not None and (forced or self.planner.rs_path is None):
+            self.planner.set_path(path)
 
     @property
-    def executing_rs(self,):
-        return not (self.planner is None or self.planner.route is None)
+    def execute_rs_path(self):
+        return not (self.planner is None or self.planner.rs_path is None)
     
     def get_log_prob(self, obs, action):
         return self.agent.get_log_prob(obs, action)
@@ -43,7 +49,7 @@ class Agent(nn.Module):
             action(np.array): the fused decision
             other: the other information, such as the log_prob of the action in case of PPO
         '''
-        if not self.executing_rs:
+        if not self.execute_rs_path:
             return self.agent.choose_action(obs)
         else:
             action = self.planner.get_action()
@@ -61,7 +67,7 @@ class Agent(nn.Module):
             action(np.array): the fused decision
             other: the other information, such as the log_prob of the action in case of PPO
         '''
-        if not self.executing_rs:
+        if not self.execute_rs_path:
             return self.agent.get_action(obs)
         else:
             action = self.planner.get_action()
